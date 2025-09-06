@@ -65,8 +65,8 @@ clean:
 	@echo "Cleaning generated files..."
 	rm -f $(TARGET) *.o $(GENERATED)
 
-# Clean everything including backup files
-distclean: clean
+# Clean everything including backup files and coverage data
+distclean: clean clean-coverage
 	rm -f *~ *.bak core
 
 # Run the compiler (requires input)
@@ -88,24 +88,54 @@ debug: CXXFLAGS += -g -DDEBUG -O0
 debug: CFLAGS += -g -DDEBUG -O0
 debug: $(TARGET)
 
-# Create test directory and sample files
-test-setup:
-	@echo "Creating test environment..."
-	@mkdir -p tests
-	@echo 'int main() { return 42; }' > tests/simple.c
-	@echo 'int add(a, b) int a; int b; { return a + b; } int main() { return add(5, 3); }' > tests/function.c
-	@echo 'int factorial(int n) { if (n <= 1) return 1; return n * factorial(n-1); } int main() { return factorial(5); }' > tests/recursive.c
+# Comprehensive test suite
+test: $(TARGET)
+	@echo "Running comprehensive compiler test suite..."
+	@echo "====================================================="
+	@failed=0; total=0; \
+	for test_file in tests/*.c; do \
+		if [ -f "$$test_file" ]; then \
+			total=$$((total + 1)); \
+			test_name=$$(basename "$$test_file" .c); \
+			echo "Testing $$test_name..."; \
+			if $(TARGET) "$$test_file" -o "tests/$$test_name.ll" 2>/dev/null; then \
+				echo "  ✓ $$test_name: PASSED"; \
+			else \
+				echo "  ✗ $$test_name: FAILED"; \
+				failed=$$((failed + 1)); \
+			fi; \
+		fi; \
+	done; \
+	echo "====================================================="; \
+	echo "Test Results: $$((total - failed))/$$total passed"; \
+	if [ $$failed -gt 0 ]; then \
+		echo "⚠️  $$failed test(s) failed"; \
+		exit 1; \
+	else \
+		echo "🎉 All tests passed!"; \
+	fi
 
-# Run tests
-test: $(TARGET) test-setup
-	@echo "Running compiler tests..."
-	@echo "=== Test 1: Simple program ==="
-	$(TARGET) tests/simple.c -o tests/simple.ll -v
-	@echo "=== Test 2: Function call ==="
-	$(TARGET) tests/function.c -o tests/function.ll -v
-	@echo "=== Test 3: Recursive function ==="
-	$(TARGET) tests/recursive.c -o tests/recursive.ll -v -a
-	@echo "All tests completed"
+# Detailed test with verbose output
+test-verbose: $(TARGET)
+	@echo "Running tests with verbose output..."
+	@for test_file in tests/*.c; do \
+		if [ -f "$$test_file" ]; then \
+			test_name=$$(basename "$$test_file" .c); \
+			echo "=== Testing $$test_name ==="; \
+			echo "Source:"; \
+			head -5 "$$test_file"; \
+			echo "Output:"; \
+			$(TARGET) "$$test_file" -o "tests/$$test_name.ll" -v || true; \
+			echo ""; \
+		fi; \
+	done
+
+# Quick test of basic functionality
+test-quick: $(TARGET)
+	@echo "Running quick functionality tests..."
+	@$(TARGET) tests/simple.c -o tests/simple.ll >/dev/null 2>&1 && echo "✓ Basic compilation works" || echo "✗ Basic compilation failed"
+	@$(TARGET) tests/variables.c >/dev/null 2>&1 && echo "✓ Variable handling works" || echo "✗ Variable handling failed"
+	@$(TARGET) tests/functions.c >/dev/null 2>&1 && echo "✓ Function parsing works" || echo "✗ Function parsing failed"
 
 # Validate generated LLVM IR
 validate: test
@@ -114,6 +144,35 @@ validate: test
 		echo "Validating $$file..."; \
 		llvm-as "$$file" -o /dev/null 2>/dev/null && echo "✓ $$file is valid" || echo "✗ $$file has errors"; \
 	done
+
+# Code coverage analysis
+test-coverage: clean
+	@echo "Building with coverage instrumentation..."
+	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         LDFLAGS="$(LDFLAGS) --coverage" \
+	         $(TARGET)
+	@echo "Running tests for coverage analysis..."
+	@$(MAKE) test-quick 2>/dev/null || true
+	@echo "Generating coverage report..."
+	@mkdir -p coverage
+	@gcov -o . src/*.cpp src/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
+	@echo "Coverage files generated:"
+	@ls -la *.gcov 2>/dev/null || echo "No .gcov files found"
+	@echo "Coverage summary:"
+	@if command -v lcov >/dev/null 2>&1; then \
+		lcov --capture --directory . --output-file coverage/coverage.info 2>/dev/null && \
+		lcov --summary coverage/coverage.info 2>/dev/null; \
+	else \
+		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
+	fi
+	@echo "Coverage analysis complete. Check .gcov files for line-by-line coverage."
+
+# Clean coverage files
+clean-coverage:
+	@echo "Cleaning coverage files..."
+	@rm -f *.gcov *.gcda *.gcno
+	@rm -rf coverage/
 
 # Install the compiler (requires sudo)
 install: $(TARGET)
@@ -130,21 +189,31 @@ uninstall:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all       - Build the compiler (default)"
-	@echo "  clean     - Remove generated and object files"
-	@echo "  distclean - Remove all generated files including backups"
-	@echo "  run       - Run the compiler (specify INPUT=file.c)"
-	@echo "  debug     - Build with debug symbols"
-	@echo "  test      - Run test suite"
-	@echo "  validate  - Validate generated LLVM IR"
-	@echo "  install   - Install compiler system-wide"
-	@echo "  uninstall - Remove system-wide installation"
-	@echo "  help      - Show this help"
+	@echo "  all            - Build the compiler (default)"
+	@echo "  clean          - Remove generated and object files"
+	@echo "  distclean      - Remove all generated files including backups and coverage"
+	@echo "  run            - Run the compiler (specify INPUT=file.c)"
+	@echo "  debug          - Build with debug symbols"
+	@echo ""
+	@echo "Testing targets:"
+	@echo "  test           - Run comprehensive test suite on all test files"
+	@echo "  test-verbose   - Run tests with detailed output"
+	@echo "  test-quick     - Run basic functionality tests"
+	@echo "  test-coverage  - Run tests with code coverage analysis"
+	@echo "  validate       - Validate generated LLVM IR syntax"
+	@echo "  clean-coverage - Remove coverage analysis files"
+	@echo ""
+	@echo "Installation:"
+	@echo "  install        - Install compiler system-wide"
+	@echo "  uninstall      - Remove system-wide installation"
+	@echo "  check-deps     - Check for required dependencies"
+	@echo "  help           - Show this help"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run INPUT=program.c OUTPUT=program.ll"
 	@echo "  make debug && ./ccompiler -v -a program.c"
 	@echo "  make test && make validate"
+	@echo "  make test-coverage    # Generate code coverage report"
 
 # Check dependencies
 check-deps:
@@ -159,4 +228,4 @@ check-deps:
 		echo "⚠ LLVM not found - some features may be limited"; \
 	fi
 
-.PHONY: all clean distclean run debug test test-setup validate install uninstall help check-deps
+.PHONY: all clean distclean run debug test test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage
