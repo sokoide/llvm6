@@ -1,0 +1,1 @@
+int main() { return add(5, 3); }

@@ -2,12 +2,12 @@
 TARGET = ./ccompiler
 CXX = g++
 CC = gcc
-CXXFLAGS = -Wall -Wextra -O2 -std=c++11
+CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Isrc
 CFLAGS = -Wall -Wextra -O2
 LIBS = -ly
 
 # Source files
-SOURCES = main.cpp ast.cpp codegen.cpp grammar.tab.cpp lex.yy.c
+SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp grammar.tab.cpp lex.yy.c
 OBJECTS = main.o ast.o codegen.o grammar.tab.o lex.yy.o
 
 # Generated files
@@ -35,30 +35,30 @@ $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS) $(LIBS)
 
 # Object file dependencies
-main.o: main.cpp ast.h codegen.h grammar.tab.hpp
-	$(CXX) $(CXXFLAGS) -c main.cpp -o main.o
+main.o: src/main.cpp src/ast.h src/codegen.h grammar.tab.hpp
+	$(CXX) $(CXXFLAGS) -c src/main.cpp -o main.o
 
-ast.o: ast.cpp ast.h
-	$(CXX) $(CXXFLAGS) -c ast.cpp -o ast.o
+ast.o: src/ast.cpp src/ast.h
+	$(CXX) $(CXXFLAGS) -c src/ast.cpp -o ast.o
 
-codegen.o: codegen.cpp codegen.h ast.h
-	$(CXX) $(CXXFLAGS) -c codegen.cpp -o codegen.o
+codegen.o: src/codegen.cpp src/codegen.h src/ast.h
+	$(CXX) $(CXXFLAGS) -c src/codegen.cpp -o codegen.o
 
-grammar.tab.o: grammar.tab.cpp ast.h codegen.h
+grammar.tab.o: grammar.tab.cpp src/ast.h src/codegen.h
 	$(CXX) $(CXXFLAGS) -c grammar.tab.cpp -o grammar.tab.o
 
 lex.yy.o: lex.yy.c grammar.tab.hpp
 	$(CC) $(CFLAGS) -c lex.yy.c -o lex.yy.o
 
 # Generate parser from grammar
-grammar.tab.cpp grammar.tab.hpp: grammar.y
+grammar.tab.cpp grammar.tab.hpp: src/grammar.y
 	@echo "Generating parser..."
-	bison -d -v -o grammar.tab.cpp grammar.y
+	bison -d -v -o grammar.tab.cpp src/grammar.y
 
 # Generate lexer from specification
-lex.yy.c: lexer.l grammar.tab.hpp
+lex.yy.c: src/lexer.l grammar.tab.hpp
 	@echo "Generating lexer..."
-	flex lexer.l
+	flex src/lexer.l
 
 # Clean generated and object files
 clean:

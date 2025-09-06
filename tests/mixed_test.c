@@ -1,0 +1,1 @@
+int add(a, b) int a; int b; { return a + b; } int test() { return 1; }
