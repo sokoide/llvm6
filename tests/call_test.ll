@@ -8,9 +8,8 @@ declare i8* @malloc(i64)
 declare void @free(i8*)
 
 define i32 @main() {
-  %1 = call i32 @add(i32 %5, i32 %3)
+  %1 = call i32 @add(i32 5, i32 3)
   ret i32 %1
-  ret i32 0
   }
 
 

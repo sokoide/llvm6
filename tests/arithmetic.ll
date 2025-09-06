@@ -8,9 +8,9 @@ declare i8* @malloc(i64)
 declare void @free(i8*)
 
 define i32 @main() {
-  %1 = mul i32 %3, %2
-  %2 = add i32 %5, %1
-  %3 = sub i32 %2, %1
+  %1 = mul i32 3, 2
+  %2 = add i32 5, %1
+  %3 = sub i32 %2, 1
   ret i32 %3
   }
 

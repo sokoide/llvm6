@@ -12,9 +12,3 @@ define i32 @add(i32 %a, i32 %b) {
   ret i32 %1
   }
 
-define i32 @main() {
-  %2 = call i32 @add(i32 5, i32 3)
-  ret i32 %2
-  }
-
-
