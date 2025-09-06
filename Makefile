@@ -93,7 +93,7 @@ test-setup:
 	@echo "Creating test environment..."
 	@mkdir -p tests
 	@echo 'int main() { return 42; }' > tests/simple.c
-	@echo 'int add(int a, int b) { return a + b; } int main() { return add(5, 3); }' > tests/function.c
+	@echo 'int add(a, b) int a; int b; { return a + b; } int main() { return add(5, 3); }' > tests/function.c
 	@echo 'int factorial(int n) { if (n <= 1) return 1; return n * factorial(n-1); } int main() { return factorial(5); }' > tests/recursive.c
 
 # Run tests

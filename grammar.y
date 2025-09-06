@@ -339,9 +339,9 @@ init_declarator_list
 
 init_declarator
 	: declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "temp", NULL); }
+		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL); }
 	| declarator '=' initializer
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "temp", $3); }
+		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $1->data.identifier.name, $3); }
 	;
 
 storage_class_specifier
@@ -511,7 +511,7 @@ parameter_list
 
 parameter_declaration
 	: declaration_specifiers declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "param", NULL); }
+		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $2->data.identifier.name, NULL); }
 	| declaration_specifiers abstract_declarator
 		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "param", NULL); }
 	| declaration_specifiers
@@ -732,13 +732,13 @@ external_declaration
 
 function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), "function", $3, $4); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, $3, $4); }
 	| declaration_specifiers declarator compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), "function", NULL, $3); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, NULL, $3); }
 	| declarator declaration_list compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), "function", $2, $3); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3); }
 	| declarator compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), "function", NULL, $2); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL, $2); }
 	;
 
 %%
