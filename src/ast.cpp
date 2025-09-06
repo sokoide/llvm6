@@ -136,6 +136,30 @@ TypeInfo* create_type_info(DataType base_type) {
     return type;
 }
 
+TypeInfo* duplicate_type_info(TypeInfo* original) {
+    if (!original) return NULL;
+    
+    TypeInfo* copy = (TypeInfo*)safe_malloc(sizeof(TypeInfo));
+    memcpy(copy, original, sizeof(TypeInfo));
+    
+    /* Deep copy pointer fields */
+    if (original->return_type) {
+        copy->return_type = duplicate_type_info(original->return_type);
+    }
+    if (original->parameters) {
+        /* Note: We don't duplicate parameters to avoid circular dependencies */
+        copy->parameters = NULL;
+    }
+    if (original->struct_name) {
+        copy->struct_name = safe_strdup(original->struct_name);
+    }
+    if (original->next) {
+        copy->next = duplicate_type_info(original->next);
+    }
+    
+    return copy;
+}
+
 TypeInfo* create_pointer_type(TypeInfo* base_type) {
     TypeInfo* type = create_type_info(TYPE_POINTER);
     type->return_type = base_type;  /* reusing return_type for base type */
@@ -250,7 +274,7 @@ void free_type_info(TypeInfo* type) {
 Symbol* create_symbol(char* name, TypeInfo* type) {
     Symbol* symbol = (Symbol*)safe_malloc(sizeof(Symbol));
     symbol->name = safe_strdup(name);
-    symbol->type = type;
+    symbol->type = duplicate_type_info(type);  /* Create a copy to avoid double-free */
     symbol->offset = 0;
     symbol->is_global = 0;
     symbol->is_parameter = 0;

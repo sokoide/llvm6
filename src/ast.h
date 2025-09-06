@@ -282,6 +282,8 @@ ASTNode* create_variable_decl_node(TypeInfo* type, char* name, ASTNode* initiali
 ASTNode* create_function_def_node(TypeInfo* return_type, char* name, ASTNode* parameters, ASTNode* body);
 
 TypeInfo* create_type_info(DataType base_type);
+
+TypeInfo* duplicate_type_info(TypeInfo* original);
 TypeInfo* create_pointer_type(TypeInfo* base_type);
 TypeInfo* create_array_type(TypeInfo* base_type, int size);
 TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters);

@@ -75,6 +75,8 @@ void generate_function_definition(CodeGenContext* ctx, ASTNode* func_def);
 
 /* Expression generation */
 LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr);
+
+LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr);
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr);
 LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call);
 LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access);

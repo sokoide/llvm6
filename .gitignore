@@ -31,9 +31,8 @@ lex.yy.c
 *~
 .DS_Store
 
-# Test files (temporary)
-test_*.c
-test_*.ll
+# Temporary
+tests/*.ll
 
 # Logs and temporary files
 *.log

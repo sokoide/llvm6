@@ -9,7 +9,8 @@ declare void @free(i8*)
 
 define i32 @factorial(i32 %n) {
   ; if statement
-  %1 = icmp sle i32 %n, 1
+  %2 = icmp sle i32 %n, 1
+  %1 = zext i1 %2 to i32
   br i1 %1, label %bb1, label %bb2
   bb1:
   ret i32 1
@@ -17,4 +18,4 @@ define i32 @factorial(i32 %n) {
   bb2:
   br label %bb3
   bb3:
-  %2 = sub i32 %n, 1
+  %3 = sub i32 %n, 1
