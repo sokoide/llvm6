@@ -149,16 +149,13 @@ void comment(void)
 
 loop:
 	while ((c = input()) != '*' && c != 0)
-		putchar(c);
+		; /* consume character silently */
 
 	if ((c1 = input()) != '/' && c != 0)
 	{
 		unput(c1);
 		goto loop;
 	}
-
-	if (c != 0)
-		putchar(c1);
 }
 
 void count(void)
