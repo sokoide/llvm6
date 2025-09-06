@@ -33,6 +33,7 @@ ASTNode* create_identifier_node(char* name) {
     ASTNode* node = create_ast_node(AST_IDENTIFIER);
     node->data.identifier.name = safe_strdup(name);
     node->data.identifier.symbol = NULL;
+    node->data.identifier.parameters = NULL;
     return node;
 }
 
@@ -252,6 +253,7 @@ Symbol* create_symbol(char* name, TypeInfo* type) {
     symbol->type = type;
     symbol->offset = 0;
     symbol->is_global = 0;
+    symbol->is_parameter = 0;
     symbol->next = NULL;
     return symbol;
 }

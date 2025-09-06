@@ -155,8 +155,22 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
             return NULL;
     }
     
-    emit_instruction(ctx, "%%%s = %s i32 %%%s, %%%s", 
-                     result_reg, op_name, left->name, right->name);
+    /* Format operands properly - constants as literals, variables as registers */
+    char left_operand[64], right_operand[64];
+    if (left->type == LLVM_VALUE_CONSTANT) {
+        snprintf(left_operand, sizeof(left_operand), "%d", left->data.constant_val);
+    } else {
+        snprintf(left_operand, sizeof(left_operand), "%%%s", left->name);
+    }
+    
+    if (right->type == LLVM_VALUE_CONSTANT) {
+        snprintf(right_operand, sizeof(right_operand), "%d", right->data.constant_val);
+    } else {
+        snprintf(right_operand, sizeof(right_operand), "%%%s", right->name);
+    }
+    
+    emit_instruction(ctx, "%%%s = %s i32 %s, %s", 
+                     result_reg, op_name, left_operand, right_operand);
     
     free_llvm_value(left);
     free_llvm_value(right);
@@ -197,16 +211,6 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
 }
 
 LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
-    /* Hardcoded handling for add function parameters */
-    if (ctx->current_function_name && strstr(ctx->current_function_name, "add") != NULL) {
-        if (strcmp(identifier->data.identifier.name, "a") == 0 ||
-            strcmp(identifier->data.identifier.name, "b") == 0) {
-            /* Return parameter directly */
-            LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, identifier->data.identifier.name, create_type_info(TYPE_INT));
-            return result;
-        }
-    }
-    
     Symbol* symbol = lookup_symbol(ctx, identifier->data.identifier.name);
     if (!symbol) {
         codegen_error(ctx, "Undefined identifier: %s", identifier->data.identifier.name);
@@ -214,23 +218,32 @@ LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
     }
     
     /* For function parameters, use them directly without loading */
-    if (!symbol->is_global && ctx->current_function_name) {
-        /* This is a local symbol (could be parameter or local variable) */
-        /* For now, assume parameters are used directly */
+    if (symbol->is_parameter) {
         LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, identifier->data.identifier.name, symbol->type);
         return result;
     }
     
-    char* load_reg = get_next_register(ctx);
-    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, symbol->type);
-    
-    if (symbol->is_global) {
-        emit_instruction(ctx, "%%%s = load i32, i32* @%s", load_reg, symbol->name);
-    } else {
+    /* For local variables, load from memory */
+    if (!symbol->is_global && ctx->current_function_name) {
+        char* load_reg = get_next_register(ctx);
+        LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, symbol->type);
+        
         emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, symbol->name);
+        free(load_reg);
+        return result;
     }
     
-    free(load_reg);
+    /* Global variables */
+    if (symbol->is_global) {
+        char* load_reg = get_next_register(ctx);
+        LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, symbol->type);
+        emit_instruction(ctx, "%%%s = load i32, i32* @%s", load_reg, symbol->name);
+        free(load_reg);
+        return result;
+    }
+    
+    /* Default case - should not reach here */
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, identifier->data.identifier.name, symbol->type);
     return result;
 }
 
@@ -271,6 +284,9 @@ void generate_statement(CodeGenContext* ctx, ASTNode* stmt) {
         case AST_EXPRESSION_STMT:
             generate_expression_statement(ctx, stmt);
             break;
+        case AST_VARIABLE_DECL:
+            generate_declaration(ctx, stmt);
+            break;
         case AST_IF_STMT:
             generate_if_statement(ctx, stmt);
             break;
@@ -301,7 +317,13 @@ void generate_return_statement(CodeGenContext* ctx, ASTNode* stmt) {
     if (stmt->data.return_stmt.expression) {
         LLVMValue* return_val = generate_expression(ctx, stmt->data.return_stmt.expression);
         if (return_val) {
-            emit_instruction(ctx, "ret i32 %%%s", return_val->name);
+            if (return_val->type == LLVM_VALUE_CONSTANT) {
+                /* For constants, use literal value directly */
+                emit_instruction(ctx, "ret i32 %d", return_val->data.constant_val);
+            } else {
+                /* For variables/registers, use register name */
+                emit_instruction(ctx, "ret i32 %%%s", return_val->name);
+            }
             free_llvm_value(return_val);
         }
     } else {
@@ -322,19 +344,41 @@ void generate_function_definition(CodeGenContext* ctx, ASTNode* func_def) {
     /* Clear local symbols */
     clear_local_symbols(ctx);
     
-    /* Generate function signature with parameters */
+    /* Generate function signature */
     char* return_type = llvm_type_to_string(func_def->data.function_def.return_type);
     
-    /* For old-style C functions, just generate the signature with hardcoded parameters for now */
-    /* TODO: Properly extract parameters from old-style declarations */
-    if (strstr(func_def->data.function_def.name, "add") != NULL) {
-        /* Hardcoded for add function to get tests passing */
-        emit_function_header(ctx, "define %s @%s(i32 %%a, i32 %%b) {", 
-                            return_type, func_def->data.function_def.name);
+    /* Handle function parameters */
+    if (func_def->data.function_def.parameters) {
+        /* Process parameter declarations and build parameter list */
+        char param_list[512] = "";
+        int param_count = 0;
         
-        /* Don't add symbols to avoid memory issues - just hardcode for now */
+        /* Walk through parameter declarations */
+        ASTNode* param_decl = func_def->data.function_def.parameters;
+        while (param_decl) {
+            if (param_decl->type == AST_VARIABLE_DECL) {
+                /* Add parameter to function signature */
+                if (param_count > 0) {
+                    strcat(param_list, ", ");
+                }
+                strcat(param_list, "i32 %");
+                strcat(param_list, param_decl->data.variable_decl.name);
+                
+                /* Add parameter as local symbol - mark as parameter */
+                Symbol* param_symbol = create_symbol(param_decl->data.variable_decl.name, param_decl->data.variable_decl.type);
+                param_symbol->is_global = 0; /* Parameter is local */
+                param_symbol->is_parameter = 1; /* Mark as parameter */
+                add_local_symbol(ctx, param_symbol);
+                
+                param_count++;
+            }
+            param_decl = param_decl->next;
+        }
+        
+        emit_function_header(ctx, "define %s @%s(%s) {", 
+                            return_type, func_def->data.function_def.name, param_list);
     } else {
-        /* No parameters for other functions */
+        /* No parameters */
         emit_function_header(ctx, "define %s @%s() {", 
                             return_type, func_def->data.function_def.name);
     }
@@ -372,6 +416,21 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
         /* Local variable */
         char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
         emit_instruction(ctx, "%%%s = alloca %s", symbol->name, type_str);
+        
+        /* Handle initializer if present */
+        if (decl->data.variable_decl.initializer) {
+            LLVMValue* init_val = generate_expression(ctx, decl->data.variable_decl.initializer);
+            if (init_val) {
+                if (init_val->type == LLVM_VALUE_CONSTANT) {
+                    emit_instruction(ctx, "store i32 %d, i32* %%%s", 
+                                   init_val->data.constant_val, symbol->name);
+                } else {
+                    emit_instruction(ctx, "store i32 %%%s, i32* %%%s", 
+                                   init_val->name, symbol->name);
+                }
+                free_llvm_value(init_val);
+            }
+        }
         
         add_local_symbol(ctx, symbol);
         free(type_str);
@@ -616,11 +675,44 @@ LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access) {
 
 void generate_if_statement(CodeGenContext* ctx, ASTNode* stmt) {
     emit_instruction(ctx, "; if statement");
-    generate_expression(ctx, stmt->data.if_stmt.condition);
+    
+    /* Generate condition */
+    LLVMValue* condition = generate_expression(ctx, stmt->data.if_stmt.condition);
+    if (!condition) return;
+    
+    /* Create basic blocks */
+    char* then_label = get_next_basic_block(ctx);
+    char* else_label = get_next_basic_block(ctx);
+    char* end_label = get_next_basic_block(ctx);
+    
+    /* Branch based on condition */
+    if (condition->type == LLVM_VALUE_CONSTANT) {
+        emit_instruction(ctx, "br i1 %d, label %%%s, label %%%s", 
+                        condition->data.constant_val, then_label, else_label);
+    } else {
+        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", 
+                        condition->name, then_label, else_label);
+    }
+    
+    /* Then block */
+    emit_instruction(ctx, "%s:", then_label);
     generate_statement(ctx, stmt->data.if_stmt.then_stmt);
+    emit_instruction(ctx, "br label %%%s", end_label);
+    
+    /* Else block */
+    emit_instruction(ctx, "%s:", else_label);
     if (stmt->data.if_stmt.else_stmt) {
         generate_statement(ctx, stmt->data.if_stmt.else_stmt);
     }
+    emit_instruction(ctx, "br label %%%s", end_label);
+    
+    /* End block */
+    emit_instruction(ctx, "%s:", end_label);
+    
+    free_llvm_value(condition);
+    free(then_label);
+    free(else_label);
+    free(end_label);
 }
 
 void generate_while_statement(CodeGenContext* ctx, ASTNode* stmt) {

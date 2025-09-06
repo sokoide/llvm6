@@ -144,6 +144,7 @@ struct Symbol {
     TypeInfo* type;
     int offset;                   /* for local variables */
     int is_global;
+    int is_parameter;             /* true if this is a function parameter */
     struct Symbol* next;
 };
 
@@ -157,6 +158,7 @@ struct ASTNode {
         struct {
             char* name;
             Symbol* symbol;
+            ASTNode* parameters;  /* for function declarators */
         } identifier;
         
         struct {

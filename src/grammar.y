@@ -465,7 +465,10 @@ direct_declarator
 	| direct_declarator '[' ']'
 		{ $$ = $1; }
 	| direct_declarator '(' parameter_type_list ')'
-		{ $$ = $1; }
+		{ 
+			$$ = $1; 
+			$$->data.identifier.parameters = $3;
+		}
 	| direct_declarator '(' identifier_list ')'
 		{ $$ = $1; }
 	| direct_declarator '(' ')'
@@ -625,7 +628,15 @@ compound_statement
 	| '{' declaration_list statement_list '}'
 		{
 			/* Combine declarations and statements */
-			$$ = create_compound_stmt_node($2);
+			if ($2) {
+				$$ = create_compound_stmt_node($2);
+				/* Chain the statement list to the end of declarations */
+				ASTNode* current = $2;
+				while (current->next) current = current->next;
+				current->next = $3;
+			} else {
+				$$ = create_compound_stmt_node($3);
+			}
 		}
 	;
 
@@ -734,7 +745,11 @@ function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
 		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, $3, $4); }
 	| declaration_specifiers declarator compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, NULL, $3); }
+		{ 
+			/* Check if declarator has parameters (modern C syntax) */
+			ASTNode* params = ($2->data.identifier.parameters) ? $2->data.identifier.parameters : NULL;
+			$$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, params, $3); 
+		}
 	| declarator declaration_list compound_statement
 		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3); }
 	| declarator compound_statement
