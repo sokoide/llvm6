@@ -1,0 +1,50 @@
+# Compiled binaries
+ccompiler
+*.exe
+
+# Object files
+*.o
+*.obj
+
+# Generated files by bison/flex
+grammar.tab.cpp
+grammar.tab.hpp
+grammar.output
+lex.yy.c
+
+# Build artifacts
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files (temporary)
+test_*.c
+test_*.ll
+
+# Logs and temporary files
+*.log
+*.tmp
+temp_*
+
+# Claude Code and Serena artifacts
+.claude/
+.serena/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
