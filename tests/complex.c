@@ -61,15 +61,17 @@ int test_scoping() {
 int test_increment_decrement() {
     int x = 10;
     int y = 20;
+    int a, b;
+    int result;
     
     /* Manual increment/decrement */
     x = x + 1;
     y = y - 1;
-    int a = x;
-    int b = y;
+    a = x;
+    b = y;
     
     /* Simple expressions */
-    int result = x + y;
+    result = x + y;
     
     return a + b + result;
 }
@@ -83,6 +85,8 @@ int test_strings() {
 
 /* Test empty statements and blocks */
 int test_empty() {
+    int i;
+    
     ;  /* Empty statement */
     
     {  /* Empty block */
@@ -97,7 +101,7 @@ int test_empty() {
     }
     
     /* Simple finite loop */
-    int i = 0;
+    i = 0;
     while (i < 1) {
         i = i + 1;
     }

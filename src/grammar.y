@@ -670,9 +670,15 @@ statement_list
 
 expression_statement
 	: ';'
-		{ $$ = NULL; }
+		{ 
+			$$ = create_ast_node(AST_EXPRESSION_STMT);
+			$$->data.return_stmt.expression = NULL; /* Reuse return_stmt structure for expression */
+		}
 	| expression ';'
-		{ $$ = $1; }
+		{ 
+			$$ = create_ast_node(AST_EXPRESSION_STMT);
+			$$->data.return_stmt.expression = $1; /* Store the expression */
+		}
 	;
 
 selection_statement

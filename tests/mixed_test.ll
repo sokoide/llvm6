@@ -12,3 +12,8 @@ define i32 @add(i32 %a, i32 %b) {
   ret i32 %1
   }
 
+define i32 @test() {
+  ret i32 1
+  }
+
+

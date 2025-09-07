@@ -138,10 +138,10 @@ TypeInfo* create_type_info(DataType base_type) {
 
 TypeInfo* duplicate_type_info(TypeInfo* original) {
     if (!original) return NULL;
-    
+
     TypeInfo* copy = (TypeInfo*)safe_malloc(sizeof(TypeInfo));
     memcpy(copy, original, sizeof(TypeInfo));
-    
+
     /* Deep copy pointer fields */
     if (original->return_type) {
         copy->return_type = duplicate_type_info(original->return_type);
@@ -156,7 +156,7 @@ TypeInfo* duplicate_type_info(TypeInfo* original) {
     if (original->next) {
         copy->next = duplicate_type_info(original->next);
     }
-    
+
     return copy;
 }
 
@@ -183,7 +183,7 @@ TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters) {
 /* Memory cleanup functions */
 void free_ast_node(ASTNode* node) {
     if (!node) return;
-    
+
     switch (node->type) {
         case AST_IDENTIFIER:
             free(node->data.identifier.name);
@@ -238,22 +238,22 @@ void free_ast_node(ASTNode* node) {
             /* Handle other node types as needed */
             break;
     }
-    
+
     if (node->data_type) {
         free_type_info(node->data_type);
     }
-    
+
     /* Free next sibling if it exists */
     if (node->next) {
         free_ast_node(node->next);
     }
-    
+
     free(node);
 }
 
 void free_type_info(TypeInfo* type) {
     if (!type) return;
-    
+
     if (type->return_type) {
         free_type_info(type->return_type);
     }
@@ -266,7 +266,7 @@ void free_type_info(TypeInfo* type) {
     if (type->next) {
         free_type_info(type->next);
     }
-    
+
     free(type);
 }
 
@@ -274,7 +274,7 @@ void free_type_info(TypeInfo* type) {
 Symbol* create_symbol(char* name, TypeInfo* type) {
     Symbol* symbol = (Symbol*)safe_malloc(sizeof(Symbol));
     symbol->name = safe_strdup(name);
-    symbol->type = duplicate_type_info(type);  /* Create a copy to avoid double-free */
+    symbol->type = type;  /* Use the type directly - ownership transferred */
     symbol->offset = 0;
     symbol->is_global = 0;
     symbol->is_parameter = 0;
@@ -284,7 +284,7 @@ Symbol* create_symbol(char* name, TypeInfo* type) {
 
 void free_symbol(Symbol* symbol) {
     if (!symbol) return;
-    
+
     free(symbol->name);
     free_type_info(symbol->type);
     free(symbol);
@@ -328,13 +328,13 @@ static const char* data_type_to_string(DataType type) {
 
 void print_ast(ASTNode* node, int indent) {
     if (!node) return;
-    
+
     for (int i = 0; i < indent; i++) {
         printf("  ");
     }
-    
+
     printf("%s", node_type_to_string(node->type));
-    
+
     switch (node->type) {
         case AST_IDENTIFIER:
             printf(" (%s)", node->data.identifier.name);
@@ -368,9 +368,9 @@ void print_ast(ASTNode* node, int indent) {
         default:
             break;
     }
-    
+
     printf("\n");
-    
+
     /* Print next sibling if it exists */
     if (node->next) {
         print_ast(node->next, indent);
@@ -382,9 +382,9 @@ void print_type_info(TypeInfo* type) {
         printf("(null type)");
         return;
     }
-    
+
     printf("%s", data_type_to_string(type->base_type));
-    
+
     if (type->qualifiers & QUAL_CONST) {
         printf(" const");
     }
