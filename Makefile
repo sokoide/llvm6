@@ -122,7 +122,7 @@ $(UNIT_TEST_BUILD)/test_pointer_struct_runner.o: $(UNIT_TEST_DIR)/test_pointer_s
 
 
 # Clean generated and object files
-clean:
+clean: clean-unit-tests
 	@echo "Cleaning generated files..."
 	rm -f $(TARGET)
 	rm -rf $(BUILD_DIR)
@@ -136,7 +136,7 @@ distclean: clean clean-coverage clean-unit-tests
 clean-unit-tests:
 	@echo "Cleaning unit test files..."
 	rm -rf $(UNIT_TEST_BUILD)
-	rm -f ./unit_tests
+	rm -f ./unit_tests ./pointer_struct_tests
 
 # Run the compiler (requires input)
 run: $(TARGET)

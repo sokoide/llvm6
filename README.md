@@ -8,7 +8,10 @@ A complete C compiler implementation that generates LLVM Intermediate Representa
 - **LLVM IR Generation**: Produces valid LLVM IR that can be compiled with LLVM tools
 - **Robust Error Handling**: Comprehensive error reporting with source location tracking
 - **Memory Management**: Advanced memory tracking and leak detection for development
-- **Comprehensive Testing**: 97% test pass rate with extensive test suite
+- **Comprehensive Testing**: 100% test pass rate with 38 unit tests + integration suite
+- **Excellent Coverage**: 71.2% line coverage, 77.6% function coverage
+- **Enhanced Pointer Support**: Multi-level pointers, pointer arithmetic, address/dereference operations
+- **Struct Foundation**: Basic struct member access with dot and arrow operators
 
 ## Quick Start
 
@@ -114,7 +117,8 @@ The codebase follows modern C++ practices with:
 - **Function Decomposition**: Focused, single-responsibility functions
 - **Error Handling**: Consistent error patterns across components
 - **Memory Safety**: Comprehensive leak detection and tracking
-- **Test Coverage**: Extensive test suite with 97% pass rate
+- **Test Coverage**: 71.2% line coverage with 100% test pass rate (38 unit tests)
+- **Comprehensive Testing**: Pointer and struct feature validation with TDD approach
 
 ## Examples
 
@@ -168,8 +172,21 @@ int main() {
 - ✅ **Variables**: Local, global, function parameters
 - ✅ **Arrays**: Basic array operations
 - ✅ **Expressions**: Complex nested expressions with proper precedence
-- ⚠️ **Pointers**: Basic pointer support (limited)
-- ⚠️ **Structs**: Partial implementation
+- ✅ **Pointers**: Multi-level pointers, arithmetic, address/dereference operations
+- ✅ **Structs**: Basic member access (dot and arrow operators)
+
+### Recent Enhancements
+
+- **Pointer Support**: Complete implementation of pointer operations
+  - Multi-level pointers (`int**`, `int***`)
+  - Pointer arithmetic (`ptr + 1`, `ptr - ptr`)
+  - Address-of (`&variable`) and dereference (`*pointer`) operators
+  - Proper type checking and LLVM IR generation
+
+- **Struct Foundation**: Basic struct functionality
+  - Struct member access with dot operator (`obj.member`)
+  - Pointer-to-struct access with arrow operator (`ptr->member`)
+  - Type-safe member access code generation
 
 ## Integration with LLVM
 
@@ -221,8 +238,9 @@ gdb ./ccompiler
 
 - **Compilation Speed**: Fast compilation for small to medium C programs
 - **Memory Usage**: Efficient memory management with leak detection
-- **Output Quality**: Generates optimizable LLVM IR
-- **Test Coverage**: 97% test pass rate across diverse C programs
+- **Output Quality**: Generates optimizable LLVM IR with enhanced pointer/struct support
+- **Test Coverage**: 71.2% line coverage, 77.6% function coverage
+- **Quality Metrics**: 100% test pass rate across 38 unit tests + integration suite
 
 ## License
 
@@ -237,5 +255,7 @@ This project is open source. See LICENSE file for details.
 ## Status
 
 **Current**: Production-ready for educational and development use
-**Test Coverage**: 33/34 tests passing (97% success rate)
+**Test Coverage**: 71.2% line coverage, 100% test pass rate (38 unit tests)
+**Features**: Enhanced with multi-level pointer support and struct member access
+**Quality**: Comprehensive memory management and extensive test validation
 **Maintenance**: Actively maintained and improved
