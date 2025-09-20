@@ -12,6 +12,7 @@ build/
 # Test outputs
 tests/output/
 tests/reports/
+unit_tests
 
 # Coverage files
 *.gcda

@@ -116,11 +116,13 @@ void cleanup_resources(void) {
 int main(int argc, char* argv[]) {
     FILE* output_file = stdout;
     CodeGenContext* ctx = NULL;
+    int exit_code = 0;
     int result = 0;
 
     /* Parse command line arguments */
     if (parse_arguments(argc, argv) != 0) {
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     /* Setup input file */
@@ -132,7 +134,8 @@ int main(int argc, char* argv[]) {
         yyin = fopen(options.input_file, "r");
         if (!yyin) {
             fprintf(stderr, "Error: Cannot open input file '%s'\n", options.input_file);
-            return 1;
+            exit_code = 1;
+            goto cleanup;
         }
     } else {
         if (options.verbose) {
@@ -150,8 +153,8 @@ int main(int argc, char* argv[]) {
         output_file = fopen(options.output_file, "w");
         if (!output_file) {
             fprintf(stderr, "Error: Cannot open output file '%s'\n", options.output_file);
-            cleanup_resources();
-            return 1;
+            exit_code = 1;
+            goto cleanup;
         }
     } else {
         if (options.verbose) {
@@ -161,42 +164,28 @@ int main(int argc, char* argv[]) {
     }
 
     /* Initialize code generation context */
-
     ctx = create_codegen_context(output_file);
     if (!ctx) {
         fprintf(stderr, "Error: Failed to create code generation context\n");
-        cleanup_resources();
-        if (output_file && output_file != stdout) {
-            fclose(output_file);
-        }
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
-    /* Parse the input */
     if (options.verbose) {
         fprintf(stderr, "Parsing input...\n");
     }
 
     result = yyparse();
-
     if (result != 0) {
         fprintf(stderr, "Error: Parsing failed\n");
-        cleanup_resources();
-        free_codegen_context(ctx);
-        if (output_file && output_file != stdout) {
-            fclose(output_file);
-        }
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     if (!program_ast) {
         fprintf(stderr, "Error: No AST generated\n");
-        cleanup_resources();
-        free_codegen_context(ctx);
-        if (output_file && output_file != stdout) {
-            fclose(output_file);
-        }
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     if (options.verbose) {
@@ -219,37 +208,28 @@ int main(int argc, char* argv[]) {
 
     if (options.verbose) {
         fprintf(stderr, "LLVM IR generation completed\n");
+        fprintf(stderr, "Starting cleanup...\n");
     }
 
-    /* Cleanup */
-    if (options.verbose) {
-        fprintf(stderr, "Starting cleanup...\n");
+cleanup:
+    if (ctx) {
+        if (options.verbose) {
+            fprintf(stderr, "Freeing codegen context...\n");
+        }
+        free_codegen_context(ctx);
+        ctx = NULL;
     }
 
     if (options.verbose) {
         fprintf(stderr, "Freeing AST...\n");
     }
-
-    /* Skip AST cleanup to avoid double-free issues with complex tests */
-    /* TODO: Fix memory management in ast.cpp for proper cleanup */
-    if (yyin && yyin != stdin) {
-        fclose(yyin);
-        yyin = NULL;
-    }
-
-    if (options.verbose) {
-        fprintf(stderr, "Freeing codegen context...\n");
-        fprintf(stderr, "Freeing global symbols...\n");
-    }
-
-    /* Skip codegen context cleanup to avoid crashes - process will end anyway */
-    (void)ctx; /* Suppress unused variable warning */
+    cleanup_resources();
 
     if (output_file && output_file != stdout) {
         fclose(output_file);
     }
 
-    return 0;
+    return exit_code;
 }
 
 /* Additional helper functions */
