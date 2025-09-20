@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "constants.h"
 #include <assert.h>
 #include <stdarg.h>
 
@@ -266,7 +267,7 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
     }
 
     /* Format operands properly - constants as literals, variables as registers */
-    char left_operand[64], right_operand[64];
+    char left_operand[MAX_OPERAND_STRING_LENGTH], right_operand[MAX_OPERAND_STRING_LENGTH];
     if (left->type == LLVM_VALUE_CONSTANT) {
         snprintf(left_operand, sizeof(left_operand), "%d",
                  left->data.constant_val);
@@ -355,10 +356,11 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
 
     char* result_reg = get_next_register(ctx);
     LLVMValue* result =
-        create_llvm_value(LLVM_VALUE_REGISTER, result_reg, symbol->type);
+        create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
+                          duplicate_type_info(symbol->type));
 
     /* Format right operand */
-    char right_operand[64];
+    char right_operand[MAX_OPERAND_STRING_LENGTH];
     if (right_value->type == LLVM_VALUE_CONSTANT) {
         snprintf(right_operand, sizeof(right_operand), "%d",
                  right_value->data.constant_val);
@@ -437,6 +439,129 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
     return result;
 }
 
+/* Helper functions for unary operations */
+static LLVMValue* generate_arithmetic_unary_op(CodeGenContext* ctx, LLVMValue* operand,
+                                               LLVMValue* result, UnaryOp op) {
+    const char* operand_str = operand->name;
+    
+    switch (op) {
+    case UOP_PLUS:
+        /* Unary plus is a no-op */
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            emit_instruction(ctx, "%%%s = add i32 0, %s", result->name, operand_str);
+        } else {
+            emit_instruction(ctx, "%%%s = add i32 0, %%%s", result->name, operand_str);
+        }
+        break;
+    case UOP_MINUS:
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            emit_instruction(ctx, "%%%s = sub i32 0, %s", result->name, operand_str);
+        } else {
+            emit_instruction(ctx, "%%%s = sub i32 0, %%%s", result->name, operand_str);
+        }
+        break;
+    case UOP_NOT:
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            emit_instruction(ctx, "%%%s = icmp eq i32 %s, 0", result->name, operand_str);
+        } else {
+            emit_instruction(ctx, "%%%s = icmp eq i32 %%%s, 0", result->name, operand_str);
+        }
+        break;
+    case UOP_BITNOT:
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            emit_instruction(ctx, "%%%s = xor i32 %s, -1", result->name, operand_str);
+        } else {
+            emit_instruction(ctx, "%%%s = xor i32 %%%s, -1", result->name, operand_str);
+        }
+        break;
+    default:
+        return NULL;
+    }
+    return result;
+}
+
+static LLVMValue* generate_increment_decrement_op(CodeGenContext* ctx, LLVMValue* operand, 
+                                                  LLVMValue* result, UnaryOp op) {
+    if (operand->type == LLVM_VALUE_CONSTANT) {
+        codegen_error(ctx, "Cannot increment/decrement constant");
+        return NULL;
+    }
+    
+    char* load_reg = get_next_register(ctx);
+    char* mod_reg = get_next_register(ctx);
+    const char* operation = (op == UOP_PREINC || op == UOP_POSTINC) ? "add" : "sub";
+    
+    switch (op) {
+    case UOP_PREINC:
+    case UOP_PREDEC:
+        /* Pre-increment/decrement: modify then return new value */
+        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, operand->name);
+        emit_instruction(ctx, "%%%s = %s i32 %%%s, 1", mod_reg, operation, load_reg);
+        emit_instruction(ctx, "store i32 %%%s, i32* %%%s", mod_reg, operand->name);
+        emit_instruction(ctx, "%%%s = add i32 %%%s, 0", result->name, mod_reg);
+        break;
+    case UOP_POSTINC:
+    case UOP_POSTDEC:
+        /* Post-increment/decrement: return old value then modify */
+        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name, operand->name);
+        emit_instruction(ctx, "%%%s = %s i32 %%%s, 1", mod_reg, operation, result->name);
+        emit_instruction(ctx, "store i32 %%%s, i32* %%%s", mod_reg, operand->name);
+        break;
+    default:
+        free(load_reg);
+        free(mod_reg);
+        return NULL;
+    }
+    
+    free(load_reg);
+    free(mod_reg);
+    return result;
+}
+
+static LLVMValue* generate_address_deref_op(CodeGenContext* ctx, LLVMValue* operand,
+                                           LLVMValue* result, UnaryOp op) {
+    switch (op) {
+    case UOP_ADDR: {
+        /* Address operator &x - get pointer to variable */
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            codegen_error(ctx, "Cannot take address of constant");
+            return NULL;
+        }
+        Symbol* symbol = lookup_symbol(ctx, operand->name);
+        if (!symbol) {
+            codegen_error(ctx, "Cannot find symbol for address operation");
+            return NULL;
+        }
+        emit_instruction(ctx, "%%%s = ptrtoint i32* %%%s to i32", result->name, symbol->name);
+        break;
+    }
+    case UOP_DEREF: {
+        /* Dereference operator *x - get value pointed to */
+        operand = load_value_if_needed(ctx, operand);
+        if (!operand) return NULL;
+
+        if (operand->type == LLVM_VALUE_CONSTANT) {
+            emit_instruction(ctx, "%%%s = inttoptr i32 %s to i32*", result->name, operand->name);
+        } else {
+            emit_instruction(ctx, "%%%s = inttoptr i32 %%%s to i32*", result->name, operand->name);
+        }
+        char* load_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, result->name);
+        free(result->name);
+        result->name = safe_strdup(load_reg);
+        free(load_reg);
+        break;
+    }
+    case UOP_SIZEOF:
+        /* sizeof operator - return size in bytes */
+        emit_instruction(ctx, "%%%s = add i32 0, %d", result->name, INT_SIZE_BYTES);
+        break;
+    default:
+        return NULL;
+    }
+    return result;
+}
+
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
     LLVMValue* operand = generate_expression(ctx, expr->data.unary_op.operand);
     if (!operand)
@@ -445,8 +570,10 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
+    UnaryOp op = expr->data.unary_op.op;
 
-    switch (expr->data.unary_op.op) {
+    /* Determine if we need the value or pointer based on operation */
+    switch (op) {
     case UOP_PLUS:
     case UOP_MINUS:
     case UOP_NOT:
@@ -468,189 +595,43 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
         break;
     case UOP_DEREF:
     case UOP_SIZEOF:
-        /* Handle these specially */
+        /* Handle these specially in their respective functions */
         break;
     default:
         break;
     }
 
-    switch (expr->data.unary_op.op) {
+    /* Delegate to appropriate helper function */
+    LLVMValue* operation_result = NULL;
+    
+    switch (op) {
     case UOP_PLUS:
-        /* Unary plus is a no-op - just return the operand value */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = add i32 0, %s", result->name,
-                             operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = add i32 0, %%%s", result->name,
-                             operand->name);
-        }
-        break;
     case UOP_MINUS:
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = sub i32 0, %s", result->name,
-                             operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = sub i32 0, %%%s", result->name,
-                             operand->name);
-        }
-        break;
     case UOP_NOT:
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = icmp eq i32 %s, 0", result->name,
-                             operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = icmp eq i32 %%%s, 0", result->name,
-                             operand->name);
-        }
-        break;
     case UOP_BITNOT:
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = xor i32 %s, -1", result->name,
-                             operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = xor i32 %%%s, -1", result->name,
-                             operand->name);
-        }
+        operation_result = generate_arithmetic_unary_op(ctx, operand, result, op);
         break;
     case UOP_PREINC:
-        /* Pre-increment: ++x - increment then return new value */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot increment constant");
-            free_llvm_value(result);
-            free_llvm_value(operand);
-            free(result_reg);
-            return NULL;
-        } else {
-            /* Load current value, increment, store back, return new value */
-            char* load_reg = get_next_register(ctx);
-            char* inc_reg = get_next_register(ctx);
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, operand->name);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", inc_reg, load_reg);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", inc_reg, operand->name);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 0", result->name, inc_reg);
-            
-            free(load_reg);
-            free(inc_reg);
-        }
-        break;
     case UOP_PREDEC:
-        /* Pre-decrement: --x - decrement then return new value */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot decrement constant");
-            free_llvm_value(result);
-            free_llvm_value(operand);
-            free(result_reg);
-            return NULL;
-        } else {
-            /* Load current value, decrement, store back, return new value */
-            char* load_reg = get_next_register(ctx);
-            char* dec_reg = get_next_register(ctx);
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, operand->name);
-            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", dec_reg, load_reg);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", dec_reg, operand->name);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 0", result->name, dec_reg);
-            
-            free(load_reg);
-            free(dec_reg);
-        }
-        break;
     case UOP_POSTINC:
-        /* Post-increment: x++ - return old value then increment */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot increment constant");
-            free_llvm_value(result);
-            free_llvm_value(operand);
-            free(result_reg);
-            return NULL;
-        } else {
-            /* Load current value, return it, then increment and store */
-            char* inc_reg = get_next_register(ctx);
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name, operand->name);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", inc_reg, result->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", inc_reg, operand->name);
-            
-            free(inc_reg);
-        }
-        break;
     case UOP_POSTDEC:
-        /* Post-decrement: x-- - return old value then decrement */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot decrement constant");
-            free_llvm_value(result);
-            free_llvm_value(operand);
-            free(result_reg);
-            return NULL;
-        } else {
-            /* Load current value, return it, then decrement and store */
-            char* dec_reg = get_next_register(ctx);
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name, operand->name);
-            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", dec_reg, result->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", dec_reg, operand->name);
-            
-            free(dec_reg);
-        }
-        break;
-    case UOP_SIZEOF:
-        /* sizeof operator - return size in bytes (simplified for int) */
-        emit_instruction(ctx, "%%%s = add i32 0, 4",
-                         result->name); /* int is 4 bytes */
+        operation_result = generate_increment_decrement_op(ctx, operand, result, op);
         break;
     case UOP_ADDR:
-        /* Address operator &x - get pointer to variable */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot take address of constant");
-            free_llvm_value(result);
-            free_llvm_value(operand);
-            free(result_reg);
-            return NULL;
-        } else {
-            /* For variables, return their address (the allocated pointer) */
-            Symbol* symbol = lookup_symbol(ctx, operand->name);
-            if (!symbol) {
-                codegen_error(ctx, "Cannot find symbol for address operation");
-                free_llvm_value(result);
-                free_llvm_value(operand);
-                free(result_reg);
-                return NULL;
-            }
-            /* Return the address directly */
-            emit_instruction(ctx, "%%%s = ptrtoint i32* %%%s to i32",
-                             result->name, symbol->name);
-        }
+    case UOP_DEREF:
+    case UOP_SIZEOF:
+        operation_result = generate_address_deref_op(ctx, operand, result, op);
         break;
-    case UOP_DEREF: {
-        /* Dereference operator *x - get value pointed to */
-        /* First load the value if needed (to get the pointer value) */
-        operand = load_value_if_needed(ctx, operand);
-        if (!operand) {
-            free_llvm_value(result);
-            free(result_reg);
-            return NULL;
-        }
-        
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = inttoptr i32 %s to i32*", result->name,
-                             operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = inttoptr i32 %%%s to i32*",
-                             result->name, operand->name);
-        }
-        char* load_reg = get_next_register(ctx);
-        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg,
-                         result->name);
-        /* Update result to point to the loaded value */
-        free(result->name);
-        result->name = safe_strdup(load_reg);
-        free(load_reg);
-        break;
-    }
     default:
-        codegen_error(ctx, "Unsupported unary operator: %d",
-                      expr->data.unary_op.op);
+        codegen_error(ctx, "Unsupported unary operator: %d", op);
+        free_llvm_value(result);
+        free_llvm_value(operand);
+        free(result_reg);
+        return NULL;
+    }
+
+    /* Handle operation failure */
+    if (!operation_result) {
         free_llvm_value(result);
         free_llvm_value(operand);
         free(result_reg);
@@ -658,10 +639,8 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
     }
 
     free_llvm_value(operand);
-    /* Free the original result_reg since create_llvm_value duplicated it */
     free(result_reg);
-
-    return result;
+    return operation_result;
 }
 
 LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
@@ -1065,13 +1044,13 @@ void free_llvm_value(LLVMValue* value) {
 }
 
 char* get_next_register(CodeGenContext* ctx) {
-    char* reg_name = (char*)safe_malloc(32);
+    char* reg_name = (char*)safe_malloc(MAX_REGISTER_NAME_LENGTH);
     snprintf(reg_name, 32, "%d", ctx->next_reg_id++);
     return reg_name;
 }
 
 char* get_next_basic_block(CodeGenContext* ctx) {
-    char* bb_name = (char*)safe_malloc(32);
+    char* bb_name = (char*)safe_malloc(MAX_BASIC_BLOCK_NAME_LENGTH);
     snprintf(bb_name, 32, "bb%d", ctx->next_bb_id++);
     return bb_name;
 }

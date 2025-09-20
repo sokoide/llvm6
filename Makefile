@@ -13,8 +13,8 @@ TEST_OUTPUT = tests/output
 TEST_REPORTS = tests/reports
 
 # Source files
-SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
-OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
+SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/memory_management.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
+OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Generated files
 GENERATED = $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.output
@@ -60,8 +60,14 @@ $(BUILD_DIR)/main.o: src/main.cpp src/ast.h src/codegen.h $(BUILD_DIR)/generated
 $(BUILD_DIR)/ast.o: src/ast.cpp src/ast.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c src/ast.cpp -o $@
 
-$(BUILD_DIR)/codegen.o: src/codegen.cpp src/codegen.h src/ast.h | $(BUILD_DIR)
+$(BUILD_DIR)/codegen.o: src/codegen.cpp src/codegen.h src/ast.h src/constants.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c src/codegen.cpp -o $@
+
+$(BUILD_DIR)/error_handling.o: src/error_handling.cpp src/error_handling.h src/constants.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c src/error_handling.cpp -o $@
+
+$(BUILD_DIR)/memory_management.o: src/memory_management.cpp src/memory_management.h src/constants.h src/error_handling.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c src/memory_management.cpp -o $@
 
 $(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp src/ast.h src/codegen.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
