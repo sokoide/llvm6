@@ -174,7 +174,109 @@ LLVMValue* generate_expression(CodeGenContext* ctx, ASTNode* expr) {
     }
 }
 
+/* Helper functions for binary operation generation */
+
+/* Check if operator is an assignment operator */
+static bool is_assignment_operator(BinaryOp op) {
+    return (op == OP_ASSIGN || op == OP_ADD_ASSIGN || op == OP_SUB_ASSIGN ||
+            op == OP_MUL_ASSIGN || op == OP_DIV_ASSIGN || op == OP_MOD_ASSIGN ||
+            op == OP_AND_ASSIGN || op == OP_OR_ASSIGN || op == OP_XOR_ASSIGN ||
+            op == OP_LSHIFT_ASSIGN || op == OP_RSHIFT_ASSIGN);
+}
+
+/* Check if operator is a comparison operator */
+static bool is_comparison_operator(BinaryOp op) {
+    return (op == OP_LT || op == OP_GT || op == OP_LE || 
+            op == OP_GE || op == OP_EQ || op == OP_NE);
+}
+
+/* Get LLVM instruction name for binary operator */
+static const char* get_binary_op_instruction(BinaryOp op) {
+    switch (op) {
+    case OP_ADD:        return "add";
+    case OP_SUB:        return "sub";
+    case OP_MUL:        return "mul";
+    case OP_DIV:        return "sdiv";
+    case OP_MOD:        return "srem";
+    case OP_LT:         return "icmp slt";
+    case OP_GT:         return "icmp sgt";
+    case OP_LE:         return "icmp sle";
+    case OP_GE:         return "icmp sge";
+    case OP_EQ:         return "icmp eq";
+    case OP_NE:         return "icmp ne";
+    case OP_BITAND:     return "and";
+    case OP_BITOR:      return "or";
+    case OP_XOR:        return "xor";
+    case OP_LSHIFT:     return "shl";
+    case OP_RSHIFT:     return "ashr";
+    default:            return NULL;
+    }
+}
+
+/* Format operand for LLVM instruction (constant vs register) */
+static void format_operand(LLVMValue* value, char* buffer, size_t buffer_size) {
+    if (value->type == LLVM_VALUE_CONSTANT) {
+        snprintf(buffer, buffer_size, "%d", value->data.constant_val);
+    } else {
+        snprintf(buffer, buffer_size, "%%%s", value->name);
+    }
+}
+
+/* Generate comparison operation with i1 to i32 conversion */
+static LLVMValue* generate_comparison_op(CodeGenContext* ctx, const char* op_name,
+                                       LLVMValue* left, LLVMValue* right) {
+    char left_operand[MAX_OPERAND_STRING_LENGTH];
+    char right_operand[MAX_OPERAND_STRING_LENGTH];
+    
+    format_operand(left, left_operand, sizeof(left_operand));
+    format_operand(right, right_operand, sizeof(right_operand));
+    
+    /* Generate comparison and result registers */
+    char* cmp_reg = get_next_register(ctx);
+    char* result_reg = get_next_register(ctx);
+    
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
+                                         create_type_info(TYPE_INT));
+    
+    /* Emit comparison instruction */
+    emit_instruction(ctx, "%%%s = %s i32 %s, %s", cmp_reg, op_name,
+                     left_operand, right_operand);
+    
+    /* Convert i1 result to i32 */
+    emit_instruction(ctx, "%%%s = zext i1 %%%s to i32", result_reg, cmp_reg);
+    
+    /* Cleanup */
+    free(cmp_reg);
+    free(result_reg);
+    
+    return result;
+}
+
+/* Generate arithmetic operation */
+static LLVMValue* generate_arithmetic_op(CodeGenContext* ctx, const char* op_name,
+                                       LLVMValue* left, LLVMValue* right) {
+    char left_operand[MAX_OPERAND_STRING_LENGTH];
+    char right_operand[MAX_OPERAND_STRING_LENGTH];
+    
+    format_operand(left, left_operand, sizeof(left_operand));
+    format_operand(right, right_operand, sizeof(right_operand));
+    
+    char* result_reg = get_next_register(ctx);
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
+                                         create_type_info(TYPE_INT));
+    
+    /* Emit arithmetic instruction */
+    emit_instruction(ctx, "%%%s = %s i32 %s, %s", result_reg, op_name,
+                     left_operand, right_operand);
+    
+    /* Cleanup */
+    free(result_reg);
+    
+    return result;
+}
+
 LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
+    /* Generate left and right operands */
     LLVMValue* left = generate_expression(ctx, expr->data.binary_op.left);
     LLVMValue* right = generate_expression(ctx, expr->data.binary_op.right);
 
@@ -182,22 +284,16 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
         return NULL;
     }
 
-    /* Assignment operators - handled separately (don't load values) */
-    if (expr->data.binary_op.op == OP_ASSIGN ||
-        expr->data.binary_op.op == OP_ADD_ASSIGN ||
-        expr->data.binary_op.op == OP_SUB_ASSIGN ||
-        expr->data.binary_op.op == OP_MUL_ASSIGN ||
-        expr->data.binary_op.op == OP_DIV_ASSIGN ||
-        expr->data.binary_op.op == OP_MOD_ASSIGN ||
-        expr->data.binary_op.op == OP_AND_ASSIGN ||
-        expr->data.binary_op.op == OP_OR_ASSIGN ||
-        expr->data.binary_op.op == OP_XOR_ASSIGN ||
-        expr->data.binary_op.op == OP_LSHIFT_ASSIGN ||
-        expr->data.binary_op.op == OP_RSHIFT_ASSIGN) {
+    BinaryOp op = expr->data.binary_op.op;
+
+    /* Handle assignment operators separately */
+    if (is_assignment_operator(op)) {
+        free_llvm_value(left);
+        free_llvm_value(right);
         return generate_assignment_op(ctx, expr);
     }
 
-    /* For arithmetic/comparison operations, load values from variables */
+    /* Load values for arithmetic/comparison operations */
     left = load_value_if_needed(ctx, left);
     right = load_value_if_needed(ctx, right);
 
@@ -205,120 +301,25 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
         return NULL;
     }
 
-    const char* op_name = NULL;
-    char* result_reg = NULL;
-    LLVMValue* result = NULL;
-    switch (expr->data.binary_op.op) {
-    case OP_ADD:
-        op_name = "add";
-        break;
-    case OP_SUB:
-        op_name = "sub";
-        break;
-    case OP_MUL:
-        op_name = "mul";
-        break;
-    case OP_DIV:
-        op_name = "sdiv";
-        break;
-    case OP_MOD:
-        op_name = "srem";
-        break;
-    case OP_LT:
-        op_name = "icmp slt";
-        break;
-    case OP_GT:
-        op_name = "icmp sgt";
-        break;
-    case OP_LE:
-        op_name = "icmp sle";
-        break;
-    case OP_GE:
-        op_name = "icmp sge";
-        break;
-    case OP_EQ:
-        op_name = "icmp eq";
-        break;
-    case OP_NE:
-        op_name = "icmp ne";
-        break;
-    case OP_BITAND:
-        op_name = "and";
-        break;
-    case OP_BITOR:
-        op_name = "or";
-        break;
-    case OP_XOR:
-        op_name = "xor";
-        break;
-    case OP_LSHIFT:
-        op_name = "shl";
-        break;
-    case OP_RSHIFT:
-        op_name = "ashr";
-        break;
-
-    default:
-        codegen_error(ctx, "Unsupported binary operator: %d",
-                      expr->data.binary_op.op);
+    /* Get instruction name for the operator */
+    const char* op_name = get_binary_op_instruction(op);
+    if (!op_name) {
+        codegen_error(ctx, "Unsupported binary operator: %d", op);
         free_llvm_value(left);
         free_llvm_value(right);
         return NULL;
     }
 
-    /* Format operands properly - constants as literals, variables as registers */
-    char left_operand[MAX_OPERAND_STRING_LENGTH], right_operand[MAX_OPERAND_STRING_LENGTH];
-    if (left->type == LLVM_VALUE_CONSTANT) {
-        snprintf(left_operand, sizeof(left_operand), "%d",
-                 left->data.constant_val);
+    LLVMValue* result;
+
+    /* Handle comparison vs arithmetic operations */
+    if (is_comparison_operator(op)) {
+        result = generate_comparison_op(ctx, op_name, left, right);
     } else {
-        snprintf(left_operand, sizeof(left_operand), "%%%s", left->name);
+        result = generate_arithmetic_op(ctx, op_name, left, right);
     }
 
-    if (right->type == LLVM_VALUE_CONSTANT) {
-        snprintf(right_operand, sizeof(right_operand), "%d",
-                 right->data.constant_val);
-    } else {
-        snprintf(right_operand, sizeof(right_operand), "%%%s", right->name);
-    }
-
-    /* Check if this is a comparison operator that returns i1 */
-    if (expr->data.binary_op.op == OP_LT || expr->data.binary_op.op == OP_GT ||
-        expr->data.binary_op.op == OP_LE || expr->data.binary_op.op == OP_GE ||
-        expr->data.binary_op.op == OP_EQ || expr->data.binary_op.op == OP_NE) {
-
-        /* For comparisons, allocate cmp_reg first, then result_reg */
-        char* cmp_reg = get_next_register(ctx);
-        result_reg = get_next_register(ctx);
-        result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
-                                  create_type_info(TYPE_INT));
-        emit_instruction(ctx, "%%%s = %s i32 %s, %s", cmp_reg, op_name,
-                         left_operand, right_operand);
-
-        /* Convert i1 to i32 */
-        emit_instruction(ctx, "%%%s = zext i1 %%%s to i32", result_reg,
-                         cmp_reg);
-
-        free_llvm_value(left);
-        free_llvm_value(right);
-        free(cmp_reg);
-        /* Free the original result_reg since create_llvm_value duplicated it */
-        free(result_reg);
-
-        return result;
-    }
-
-    /* Regular binary operations (arithmetic, bitwise) */
-    result_reg = get_next_register(ctx);
-    result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
-                              create_type_info(TYPE_INT));
-                              
-    emit_instruction(ctx, "%%%s = %s i32 %s, %s", result_reg, op_name,
-                    left_operand, right_operand);
-    
-    /* Free the original result_reg since create_llvm_value duplicated it */
-    free(result_reg);
-
+    /* Cleanup operands */
     free_llvm_value(left);
     free_llvm_value(right);
 
