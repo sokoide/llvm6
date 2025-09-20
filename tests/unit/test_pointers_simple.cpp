@@ -35,6 +35,9 @@ void test_address_of_operator() {
     std::cout << "Testing address-of operator (&x)...\n";
     
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create variable symbol: int x;
@@ -60,13 +63,18 @@ void test_address_of_operator() {
     free_ast_node(addr_expr);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 void test_dereference_operator() {
     std::cout << "Testing dereference operator (*ptr)...\n";
     
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create pointer symbol: int* ptr;
@@ -93,13 +101,18 @@ void test_dereference_operator() {
     free_ast_node(deref_expr);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 void test_pointer_arithmetic() {
     std::cout << "Testing pointer arithmetic (ptr + 1)...\n";
     
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create pointer symbol: int* ptr;
@@ -127,7 +140,9 @@ void test_pointer_arithmetic() {
     free_ast_node(add_expr);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 void test_multi_level_pointers() {

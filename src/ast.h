@@ -276,6 +276,12 @@ struct ASTNode {
             ASTNode* body;
         } function_def;
 
+        struct {
+            char* name;
+            ASTNode* members;    /* list of member declarations */
+            Symbol* symbol_table; /* struct's symbol table */
+        } struct_decl;
+
         /* Lists */
         struct {
             ASTNode** items;

@@ -26,7 +26,7 @@ CodeGenContext* create_codegen_context(FILE* output) {
     CodeGenContext* ctx = (CodeGenContext*)safe_malloc(sizeof(CodeGenContext));
     memset(ctx, 0, sizeof(CodeGenContext));
 
-    ctx->output = output;
+    ctx->output = output ? output : stdout;
     ctx->next_reg_id = 1;
     ctx->next_bb_id = 1;
     ctx->current_function_id = 0;
@@ -101,43 +101,97 @@ void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
 /* Expression generation */
 /* Helper function to load value from identifier if it's a variable pointer */
 LLVMValue* load_value_if_needed(CodeGenContext* ctx, LLVMValue* value) {
-    if (!value) return NULL;
-    
-    /* If it's already a constant, return as-is */
-    if (value->type == LLVM_VALUE_CONSTANT) {
+    if (!value)
+        return NULL;
+
+    if (value->type == LLVM_VALUE_CONSTANT || value->type == LLVM_VALUE_FUNCTION)
         return value;
+
+    if (!value->name)
+        return value;
+
+    Symbol* symbol = lookup_symbol(ctx, value->name);
+    if (!symbol || symbol->is_parameter)
+        return value;
+
+    char* load_reg = get_next_register(ctx);
+    TypeInfo* loaded_type = duplicate_type_info(symbol->type);
+    LLVMValue* loaded_value =
+        create_llvm_value(LLVM_VALUE_REGISTER, load_reg, loaded_type);
+
+    char* value_type_str = llvm_type_to_string(symbol->type);
+    TypeInfo* pointer_type_info =
+        create_pointer_type(duplicate_type_info(symbol->type));
+    char* pointer_type_str = llvm_type_to_string(pointer_type_info);
+
+    if (symbol->is_global) {
+        emit_instruction(ctx, "%%%s = load %s, %s @%s", load_reg, value_type_str,
+                         pointer_type_str, symbol->name);
+    } else {
+        emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg, value_type_str,
+                         pointer_type_str, symbol->name);
     }
-    
-    /* For registers and globals that represent variable addresses, we need to load the value */
-    if (value->type == LLVM_VALUE_REGISTER || value->type == LLVM_VALUE_GLOBAL) {
-        /* Check if this is a variable that needs loading */
-        Symbol* symbol = lookup_symbol(ctx, value->name);
-        if (symbol && !symbol->is_parameter && !symbol->is_global) {
-            /* Load the value from local variable */
-            char* load_reg = get_next_register(ctx);
-            LLVMValue* loaded_value = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, 
-                                                       duplicate_type_info(value->llvm_type));
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, value->name);
-            
-            free(load_reg);
-            free_llvm_value(value); /* Free the original pointer value */
-            return loaded_value;
-        } else if (symbol && symbol->is_global) {
-            /* Load the value from global variable */
-            char* load_reg = get_next_register(ctx);
-            LLVMValue* loaded_value = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, 
-                                                       duplicate_type_info(value->llvm_type));
-            
-            emit_instruction(ctx, "%%%s = load i32, i32* @%s", load_reg, value->name);
-            
-            free(load_reg);
-            free_llvm_value(value); /* Free the original pointer value */
-            return loaded_value;
-        }
+
+    free(value_type_str);
+    free(pointer_type_str);
+    free_type_info(pointer_type_info);
+    free(load_reg);
+    free_llvm_value(value);
+    return loaded_value;
+}
+
+static LLVMValue* ensure_pointer_value(CodeGenContext* ctx, LLVMValue* value) {
+    if (!value)
+        return NULL;
+
+    if (!value->llvm_type || value->llvm_type->base_type != TYPE_POINTER)
+        return value;
+
+    Symbol* symbol = lookup_symbol(ctx, value->name);
+    if (!symbol || symbol->is_parameter)
+        return value;
+
+    char* load_reg = get_next_register(ctx);
+    char* value_type_str = llvm_type_to_string(symbol->type);
+    TypeInfo* storage_pointer_type =
+        create_pointer_type(duplicate_type_info(symbol->type));
+    char* storage_pointer_str = llvm_type_to_string(storage_pointer_type);
+
+    if (symbol->is_global) {
+        emit_instruction(ctx, "%%%s = load %s, %s @%s", load_reg, value_type_str,
+                         storage_pointer_str, symbol->name);
+    } else {
+        emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg, value_type_str,
+                         storage_pointer_str, symbol->name);
     }
-    
-    /* Return as-is for parameters and other values */
+
+    free(value_type_str);
+    free(storage_pointer_str);
+    free_type_info(storage_pointer_type);
+
+    LLVMValue* loaded_value = create_llvm_value(
+        LLVM_VALUE_REGISTER, load_reg, duplicate_type_info(symbol->type));
+    free(load_reg);
+    return loaded_value;
+}
+
+static LLVMValue* ensure_integer_register(CodeGenContext* ctx, LLVMValue* value) {
+    if (!value)
+        return NULL;
+
+    if (value->type == LLVM_VALUE_REGISTER)
+        return value;
+
+    if (value->type == LLVM_VALUE_CONSTANT) {
+        char* reg = get_next_register(ctx);
+        LLVMValue* reg_value =
+            create_llvm_value(LLVM_VALUE_REGISTER, reg, create_type_info(TYPE_INT));
+        emit_instruction(ctx, "%%%s = add i32 0, %s", reg, value->name);
+        free(reg);
+        free_llvm_value(value);
+        return reg_value;
+    }
+
     return value;
 }
 
@@ -293,6 +347,13 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
         return generate_assignment_op(ctx, expr);
     }
 
+    /* Handle pointer arithmetic before loading values */
+    if ((op == OP_ADD || op == OP_SUB) &&
+        ((left->llvm_type && left->llvm_type->base_type == TYPE_POINTER) ||
+         (right->llvm_type && right->llvm_type->base_type == TYPE_POINTER))) {
+        return generate_pointer_arithmetic_op(ctx, op, left, right);
+    }
+
     /* Load values for arithmetic/comparison operations */
     left = load_value_if_needed(ctx, left);
     right = load_value_if_needed(ctx, right);
@@ -331,13 +392,11 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
     ASTNode* right_node = expr->data.binary_op.right;
     BinaryOp op = expr->data.binary_op.op;
 
-    /* Left side must be an identifier (variable) */
     if (left_node->type != AST_IDENTIFIER) {
         codegen_error(ctx, "Left side of assignment must be a variable");
         return NULL;
     }
 
-    /* Look up the variable in symbol table */
     Symbol* symbol = lookup_symbol(ctx, left_node->data.identifier.name);
     if (!symbol) {
         codegen_error(ctx, "Undefined variable: %s",
@@ -345,97 +404,120 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
         return NULL;
     }
 
-    /* Generate right-hand side expression and load the value if it's a variable */
     LLVMValue* right_value = generate_expression(ctx, right_node);
     if (!right_value)
         return NULL;
-    
-    /* Load the value if it's a variable reference */
+
     right_value = load_value_if_needed(ctx, right_value);
     if (!right_value)
         return NULL;
 
+    char right_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(right_value, right_operand, sizeof(right_operand));
+
+    char* value_type_str = llvm_type_to_string(symbol->type);
+    TypeInfo* pointer_type_info =
+        create_pointer_type(duplicate_type_info(symbol->type));
+    char* pointer_type_str = llvm_type_to_string(pointer_type_info);
+
+    if (op == OP_ASSIGN) {
+        if (symbol->is_global) {
+            emit_instruction(ctx, "store %s %s, %s @%s", value_type_str,
+                             right_operand, pointer_type_str, symbol->name);
+        } else {
+            emit_instruction(ctx, "store %s %s, %s %%%s", value_type_str,
+                             right_operand, pointer_type_str, symbol->name);
+        }
+
+        free(value_type_str);
+        free(pointer_type_str);
+        free_type_info(pointer_type_info);
+        free_llvm_value(right_value);
+
+        TypeInfo* location_type =
+            create_pointer_type(duplicate_type_info(symbol->type));
+        LLVMValue* location_value =
+            create_llvm_value(symbol->is_global ? LLVM_VALUE_GLOBAL
+                                                : LLVM_VALUE_REGISTER,
+                              symbol->name, location_type);
+        return load_value_if_needed(ctx, location_value);
+    }
+
+    const char* op_name = NULL;
+    switch (op) {
+    case OP_ADD_ASSIGN:
+        op_name = "add";
+        break;
+    case OP_SUB_ASSIGN:
+        op_name = "sub";
+        break;
+    case OP_MUL_ASSIGN:
+        op_name = "mul";
+        break;
+    case OP_DIV_ASSIGN:
+        op_name = "sdiv";
+        break;
+    case OP_MOD_ASSIGN:
+        op_name = "srem";
+        break;
+    case OP_AND_ASSIGN:
+        op_name = "and";
+        break;
+    case OP_OR_ASSIGN:
+        op_name = "or";
+        break;
+    case OP_XOR_ASSIGN:
+        op_name = "xor";
+        break;
+    case OP_LSHIFT_ASSIGN:
+        op_name = "shl";
+        break;
+    case OP_RSHIFT_ASSIGN:
+        op_name = "ashr";
+        break;
+    default:
+        codegen_error(ctx, "Unsupported assignment operator: %d", op);
+        free(value_type_str);
+        free(pointer_type_str);
+        free_type_info(pointer_type_info);
+        free_llvm_value(right_value);
+        return NULL;
+    }
+
+    char* load_reg = get_next_register(ctx);
+    if (symbol->is_global) {
+        emit_instruction(ctx, "%%%s = load %s, %s @%s", load_reg, value_type_str,
+                         pointer_type_str, symbol->name);
+    } else {
+        emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg, value_type_str,
+                         pointer_type_str, symbol->name);
+    }
+
     char* result_reg = get_next_register(ctx);
+    emit_instruction(ctx, "%%%s = %s %s %%%s, %s", result_reg, op_name,
+                     value_type_str, load_reg, right_operand);
+
+    char result_operand[MAX_OPERAND_STRING_LENGTH];
+    snprintf(result_operand, sizeof(result_operand), "%%%s", result_reg);
+
+    if (symbol->is_global) {
+        emit_instruction(ctx, "store %s %s, %s @%s", value_type_str,
+                         result_operand, pointer_type_str, symbol->name);
+    } else {
+        emit_instruction(ctx, "store %s %s, %s %%%s", value_type_str,
+                         result_operand, pointer_type_str, symbol->name);
+    }
+
     LLVMValue* result =
         create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                           duplicate_type_info(symbol->type));
 
-    /* Format right operand */
-    char right_operand[MAX_OPERAND_STRING_LENGTH];
-    if (right_value->type == LLVM_VALUE_CONSTANT) {
-        snprintf(right_operand, sizeof(right_operand), "%d",
-                 right_value->data.constant_val);
-    } else {
-        snprintf(right_operand, sizeof(right_operand), "%%%s",
-                 right_value->name);
-    }
-
-    if (op == OP_ASSIGN) {
-        /* Simple assignment: store right value to variable */
-        emit_instruction(ctx, "store i32 %s, i32* %%%s", right_operand,
-                         symbol->name);
-        /* Return the stored value */
-        emit_instruction(ctx, "%%%s = add i32 %s, 0", result->name, right_operand);
-    } else {
-        /* Compound assignment: load variable, perform operation, store result */
-        char* temp_reg = get_next_register(ctx);
-        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", temp_reg,
-                         symbol->name);
-
-        const char* op_name = NULL;
-        switch (op) {
-        case OP_ADD_ASSIGN:
-            op_name = "add";
-            break;
-        case OP_SUB_ASSIGN:
-            op_name = "sub";
-            break;
-        case OP_MUL_ASSIGN:
-            op_name = "mul";
-            break;
-        case OP_DIV_ASSIGN:
-            op_name = "sdiv";
-            break;
-        case OP_MOD_ASSIGN:
-            op_name = "srem";
-            break;
-        case OP_AND_ASSIGN:
-            op_name = "and";
-            break;
-        case OP_OR_ASSIGN:
-            op_name = "or";
-            break;
-        case OP_XOR_ASSIGN:
-            op_name = "xor";
-            break;
-        case OP_LSHIFT_ASSIGN:
-            op_name = "shl";
-            break;
-        case OP_RSHIFT_ASSIGN:
-            op_name = "ashr";
-            break;
-        default:
-            codegen_error(ctx, "Unsupported assignment operator: %d", op);
-            free(temp_reg);
-            free_llvm_value(right_value);
-            free(result_reg);
-            return NULL;
-        }
-
-        /* Perform the operation */
-        emit_instruction(ctx, "%%%s = %s i32 %%%s, %s", result->name, op_name,
-                         temp_reg, right_operand);
-
-        /* Store the result back to the variable */
-        emit_instruction(ctx, "store i32 %%%s, i32* %%%s", result->name,
-                         symbol->name);
-
-        free(temp_reg);
-    }
-
-    free_llvm_value(right_value);
-    /* Free the original result_reg since create_llvm_value duplicated it */
+    free(value_type_str);
+    free(pointer_type_str);
+    free_type_info(pointer_type_info);
+    free(load_reg);
     free(result_reg);
+    free_llvm_value(right_value);
 
     return result;
 }
@@ -519,48 +601,268 @@ static LLVMValue* generate_increment_decrement_op(CodeGenContext* ctx, LLVMValue
     return result;
 }
 
-static LLVMValue* generate_address_deref_op(CodeGenContext* ctx, LLVMValue* operand,
-                                           LLVMValue* result, UnaryOp op) {
+static LLVMValue* generate_address_deref_op(CodeGenContext* ctx,
+                                           LLVMValue* operand,
+                                           LLVMValue* result,
+                                           UnaryOp op) {
     switch (op) {
     case UOP_ADDR: {
-        /* Address operator &x - get pointer to variable */
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            codegen_error(ctx, "Cannot take address of constant");
-            return NULL;
-        }
         Symbol* symbol = lookup_symbol(ctx, operand->name);
         if (!symbol) {
-            codegen_error(ctx, "Cannot find symbol for address operation");
+            codegen_error(ctx, "Cannot take address of unknown symbol");
             return NULL;
         }
-        emit_instruction(ctx, "%%%s = ptrtoint i32* %%%s to i32", result->name, symbol->name);
-        break;
+
+        free_llvm_value(result);
+        TypeInfo* pointer_type =
+            create_pointer_type(duplicate_type_info(symbol->type));
+        LLVMValue* address_value = create_llvm_value(
+            symbol->is_global ? LLVM_VALUE_GLOBAL : LLVM_VALUE_REGISTER,
+            symbol->name, pointer_type);
+        return address_value;
     }
     case UOP_DEREF: {
-        /* Dereference operator *x - get value pointed to */
-        operand = load_value_if_needed(ctx, operand);
-        if (!operand) return NULL;
+        LLVMValue* operand_source = operand;
+        operand = ensure_pointer_value(ctx, operand);
+        bool operand_replaced = (operand != operand_source);
 
-        if (operand->type == LLVM_VALUE_CONSTANT) {
-            emit_instruction(ctx, "%%%s = inttoptr i32 %s to i32*", result->name, operand->name);
-        } else {
-            emit_instruction(ctx, "%%%s = inttoptr i32 %%%s to i32*", result->name, operand->name);
+        if (!operand || !operand->llvm_type ||
+            operand->llvm_type->base_type != TYPE_POINTER) {
+            codegen_error(ctx, "Cannot dereference non-pointer type");
+            if (operand_replaced) {
+                free_llvm_value(operand);
+            }
+            return NULL;
         }
-        char* load_reg = get_next_register(ctx);
-        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, result->name);
-        free(result->name);
-        result->name = safe_strdup(load_reg);
-        free(load_reg);
-        break;
+
+        TypeInfo* pointee_type =
+            duplicate_type_info(operand->llvm_type->return_type);
+
+        char* pointee_type_str = llvm_type_to_string(operand->llvm_type->return_type);
+        char* pointer_type_str = llvm_type_to_string(operand->llvm_type);
+
+        free_type_info(result->llvm_type);
+        result->llvm_type = pointee_type;
+
+        char operand_str[MAX_OPERAND_STRING_LENGTH];
+        format_operand(operand, operand_str, sizeof(operand_str));
+
+        emit_instruction(ctx, "%%%s = load %s, %s %s", result->name,
+                         pointee_type_str, pointer_type_str, operand_str);
+
+        free(pointee_type_str);
+        free(pointer_type_str);
+        if (operand_replaced) {
+            free_llvm_value(operand);
+        }
+        return result;
     }
-    case UOP_SIZEOF:
-        /* sizeof operator - return size in bytes */
-        emit_instruction(ctx, "%%%s = add i32 0, %d", result->name, INT_SIZE_BYTES);
-        break;
+    case UOP_SIZEOF: {
+        int size = INT_SIZE_BYTES;
+        if (operand->llvm_type) {
+            size = get_type_size(operand->llvm_type);
+        }
+        emit_instruction(ctx, "%%%s = add i32 0, %d", result->name, size);
+        return result;
+    }
     default:
         return NULL;
     }
-    return result;
+}
+
+LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op,
+                                             LLVMValue* left, LLVMValue* right) {
+    bool left_is_pointer =
+        (left->llvm_type && left->llvm_type->base_type == TYPE_POINTER);
+    bool right_is_pointer =
+        (right->llvm_type && right->llvm_type->base_type == TYPE_POINTER);
+
+    if (op == OP_ADD && (left_is_pointer || right_is_pointer)) {
+        LLVMValue* pointer_value = left_is_pointer ? left : right;
+        LLVMValue* pointer_source = pointer_value;
+        pointer_value = ensure_pointer_value(ctx, pointer_value);
+        if (pointer_value != pointer_source) {
+            free_llvm_value(pointer_source);
+        }
+
+        LLVMValue* index_value = left_is_pointer ? right : left;
+        LLVMValue* index_source = index_value;
+        index_value = load_value_if_needed(ctx, index_value);
+        if (index_value != index_source) {
+            free_llvm_value(index_source);
+        }
+        index_value = ensure_integer_register(ctx, index_value);
+
+        if (!pointer_value || !pointer_value->llvm_type ||
+            pointer_value->llvm_type->base_type != TYPE_POINTER) {
+            codegen_error(ctx, "Pointer arithmetic requires pointer operand");
+            free_llvm_value(pointer_value);
+            free_llvm_value(index_value);
+            return NULL;
+        }
+
+        char pointer_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(pointer_value, pointer_operand, sizeof(pointer_operand));
+
+        char index_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(index_value, index_operand, sizeof(index_operand));
+
+        char* result_reg = get_next_register(ctx);
+        LLVMValue* result = create_llvm_value(
+            LLVM_VALUE_REGISTER, result_reg,
+            duplicate_type_info(pointer_value->llvm_type));
+
+        char* element_type_str =
+            llvm_type_to_string(pointer_value->llvm_type->return_type);
+        char* pointer_type_str =
+            llvm_type_to_string(pointer_value->llvm_type);
+
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                         result->name, element_type_str, pointer_type_str,
+                         pointer_operand, index_operand);
+
+        free(element_type_str);
+        free(pointer_type_str);
+        free(result_reg);
+        free_llvm_value(pointer_value);
+        free_llvm_value(index_value);
+        return result;
+    }
+
+    if (op == OP_SUB && left_is_pointer && !right_is_pointer) {
+        LLVMValue* pointer_source = left;
+        LLVMValue* pointer_value = ensure_pointer_value(ctx, left);
+        if (pointer_value != pointer_source) {
+            free_llvm_value(pointer_source);
+        }
+
+        LLVMValue* index_source = right;
+        LLVMValue* index_value = load_value_if_needed(ctx, right);
+        if (index_value != index_source) {
+            free_llvm_value(index_source);
+        }
+        index_value = ensure_integer_register(ctx, index_value);
+
+        if (!pointer_value || !pointer_value->llvm_type ||
+            pointer_value->llvm_type->base_type != TYPE_POINTER) {
+            codegen_error(ctx, "Pointer subtraction requires pointer operand");
+            free_llvm_value(pointer_value);
+            free_llvm_value(index_value);
+            return NULL;
+        }
+
+        char* neg_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = sub i32 0, %%%s", neg_reg,
+                         index_value->name);
+        LLVMValue* neg_value = create_llvm_value(LLVM_VALUE_REGISTER, neg_reg,
+                                                 create_type_info(TYPE_INT));
+        free(neg_reg);
+        free_llvm_value(index_value);
+        index_value = neg_value;
+
+        char pointer_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(pointer_value, pointer_operand, sizeof(pointer_operand));
+
+        char index_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(index_value, index_operand, sizeof(index_operand));
+
+        char* result_reg = get_next_register(ctx);
+        LLVMValue* result = create_llvm_value(
+            LLVM_VALUE_REGISTER, result_reg,
+            duplicate_type_info(pointer_value->llvm_type));
+
+        char* element_type_str =
+            llvm_type_to_string(pointer_value->llvm_type->return_type);
+        char* pointer_type_str =
+            llvm_type_to_string(pointer_value->llvm_type);
+
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                         result->name, element_type_str, pointer_type_str,
+                         pointer_operand, index_operand);
+
+        free(element_type_str);
+        free(pointer_type_str);
+        free(result_reg);
+        free_llvm_value(pointer_value);
+        free_llvm_value(index_value);
+        return result;
+    }
+
+    if (op == OP_SUB && left_is_pointer && right_is_pointer) {
+        LLVMValue* left_source = left;
+        LLVMValue* left_pointer = ensure_pointer_value(ctx, left);
+        if (left_pointer != left_source) {
+            free_llvm_value(left_source);
+        }
+
+        LLVMValue* right_source = right;
+        LLVMValue* right_pointer = ensure_pointer_value(ctx, right);
+        if (right_pointer != right_source) {
+            free_llvm_value(right_source);
+        }
+
+        if (!left_pointer || !right_pointer || !left_pointer->llvm_type ||
+            left_pointer->llvm_type->base_type != TYPE_POINTER ||
+            !right_pointer->llvm_type ||
+            right_pointer->llvm_type->base_type != TYPE_POINTER) {
+            codegen_error(ctx, "Pointer difference requires pointer operands");
+            free_llvm_value(left_pointer);
+            free_llvm_value(right_pointer);
+            return NULL;
+        }
+
+        char left_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(left_pointer, left_operand, sizeof(left_operand));
+
+        char right_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(right_pointer, right_operand, sizeof(right_operand));
+
+        char* pointer_type_str =
+            llvm_type_to_string(left_pointer->llvm_type);
+
+        char* left_int_reg = get_next_register(ctx);
+        char* right_int_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = ptrtoint %s %s to i64", left_int_reg,
+                         pointer_type_str, left_operand);
+        emit_instruction(ctx, "%%%s = ptrtoint %s %s to i64", right_int_reg,
+                         pointer_type_str, right_operand);
+
+        char* diff_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = sub i64 %%%s, %%%s", diff_reg,
+                         left_int_reg, right_int_reg);
+
+        int elem_size =
+            get_type_size(left_pointer->llvm_type->return_type);
+        if (elem_size <= 0)
+            elem_size = 1;
+
+        char* quotient_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = sdiv i64 %%%s, %d", quotient_reg,
+                         diff_reg, elem_size);
+
+        char* trunc_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = trunc i64 %%%s to i32", trunc_reg,
+                         quotient_reg);
+
+        LLVMValue* result =
+            create_llvm_value(LLVM_VALUE_REGISTER, trunc_reg,
+                              create_type_info(TYPE_INT));
+
+        free(pointer_type_str);
+        free(left_int_reg);
+        free(right_int_reg);
+        free(diff_reg);
+        free(quotient_reg);
+        free(trunc_reg);
+        free_llvm_value(left_pointer);
+        free_llvm_value(right_pointer);
+        return result;
+    }
+
+    codegen_error(ctx, "Unsupported pointer arithmetic operation");
+    free_llvm_value(left);
+    free_llvm_value(right);
+    return NULL;
 }
 
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
@@ -986,7 +1288,9 @@ void codegen_warning(CodeGenContext* ctx, const char* message, ...) {
 
 /* Declaration generation */
 void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
-    /* Duplicate the type for the symbol to avoid conflicts with AST cleanup */
+    if (!ctx || !decl)
+        return;
+
     TypeInfo* symbol_type = duplicate_type_info(decl->data.variable_decl.type);
     Symbol* symbol = create_symbol(decl->data.variable_decl.name, symbol_type);
 
@@ -1007,18 +1311,24 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
         char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
         emit_instruction(ctx, "%%%s = alloca %s", symbol->name, type_str);
 
-        /* Handle initializer if present */
         if (decl->data.variable_decl.initializer) {
             LLVMValue* init_val =
                 generate_expression(ctx, decl->data.variable_decl.initializer);
             if (init_val) {
-                if (init_val->type == LLVM_VALUE_CONSTANT) {
-                    emit_instruction(ctx, "store i32 %d, i32* %%%s",
-                                     init_val->data.constant_val, symbol->name);
-                } else {
-                    emit_instruction(ctx, "store i32 %%%s, i32* %%%s",
-                                     init_val->name, symbol->name);
-                }
+                char init_operand[MAX_OPERAND_STRING_LENGTH];
+                format_operand(init_val, init_operand, sizeof(init_operand));
+
+                char* value_type_str = llvm_type_to_string(symbol->type);
+                TypeInfo* pointer_type_info =
+                    create_pointer_type(duplicate_type_info(symbol->type));
+                char* pointer_type_str = llvm_type_to_string(pointer_type_info);
+
+                emit_instruction(ctx, "store %s %s, %s %%%s", value_type_str,
+                                 init_operand, pointer_type_str, symbol->name);
+
+                free(value_type_str);
+                free(pointer_type_str);
+                free_type_info(pointer_type_info);
                 free_llvm_value(init_val);
             }
         }
@@ -1078,8 +1388,36 @@ char* llvm_type_to_string(TypeInfo* type) {
         return safe_strdup("float");
     case TYPE_DOUBLE:
         return safe_strdup("double");
-    case TYPE_POINTER:
-        return safe_strdup("i32*");
+    case TYPE_POINTER: {
+        char* target_str = NULL;
+        if (type->return_type) {
+            target_str = llvm_type_to_string(type->return_type);
+        } else {
+            target_str = safe_strdup("i8");
+        }
+        size_t len = strlen(target_str) + 2;
+        char* result = (char*)safe_malloc(len + 1);
+        snprintf(result, len + 1, "%s*", target_str);
+        free(target_str);
+        return result;
+    }
+    case TYPE_STRUCT: {
+        const char* struct_name = type->struct_name ? type->struct_name : "anon";
+        size_t len = strlen(struct_name) + strlen("%struct.");
+        char* result = (char*)safe_malloc(len + 2);
+        snprintf(result, len + 2, "%%struct.%s", struct_name);
+        return result;
+    }
+    case TYPE_ARRAY: {
+        char* element_str = type->return_type ? llvm_type_to_string(type->return_type)
+                                              : safe_strdup("i8");
+        size_t len = snprintf(NULL, 0, "[%d x %s]", type->array_size,
+                              element_str);
+        char* result = (char*)safe_malloc(len + 1);
+        snprintf(result, len + 1, "[%d x %s]", type->array_size, element_str);
+        free(element_str);
+        return result;
+    }
     default:
         return safe_strdup("i32");
     }
@@ -1087,16 +1425,99 @@ char* llvm_type_to_string(TypeInfo* type) {
 
 char* get_default_value(TypeInfo* type) {
     if (!type)
-        return safe_strdup("0");
+        return safe_strdup(DEFAULT_INT_VALUE);
 
     switch (type->base_type) {
     case TYPE_FLOAT:
-        return safe_strdup("0.0");
+        return safe_strdup(DEFAULT_FLOAT_VALUE);
     case TYPE_DOUBLE:
-        return safe_strdup("0.0");
+        return safe_strdup(DEFAULT_DOUBLE_VALUE);
+    case TYPE_POINTER:
+        return safe_strdup(DEFAULT_POINTER_VALUE);
     default:
-        return safe_strdup("0");
+        return safe_strdup(DEFAULT_INT_VALUE);
     }
+}
+
+static int is_integer_type(DataType type) {
+    switch (type) {
+    case TYPE_CHAR:
+    case TYPE_SHORT:
+    case TYPE_INT:
+    case TYPE_LONG:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+int get_type_size(TypeInfo* type) {
+    if (!type)
+        return INT_SIZE_BYTES;
+
+    switch (type->base_type) {
+    case TYPE_CHAR:
+        return 1;
+    case TYPE_SHORT:
+        return 2;
+    case TYPE_INT:
+        return INT_SIZE_BYTES;
+    case TYPE_LONG:
+        return 8;
+    case TYPE_FLOAT:
+        return FLOAT_SIZE_BYTES;
+    case TYPE_DOUBLE:
+        return DOUBLE_SIZE_BYTES;
+    case TYPE_POINTER:
+    case TYPE_FUNCTION:
+        return POINTER_SIZE_BYTES;
+    case TYPE_ARRAY:
+        return type->array_size * get_type_size(type->return_type);
+    case TYPE_STRUCT:
+    case TYPE_UNION:
+        /* TODO: compute actual aggregate size once layout is available */
+        return POINTER_SIZE_BYTES;
+    default:
+        return INT_SIZE_BYTES;
+    }
+}
+
+static int compare_struct_names(const TypeInfo* lhs, const TypeInfo* rhs) {
+    if (!lhs || !rhs)
+        return lhs == rhs;
+    if (lhs->struct_name == NULL && rhs->struct_name == NULL)
+        return 1;
+    if (!lhs->struct_name || !rhs->struct_name)
+        return 0;
+    return strcmp(lhs->struct_name, rhs->struct_name) == 0;
+}
+
+int types_compatible(TypeInfo* type1, TypeInfo* type2) {
+    if (!type1 || !type2)
+        return 0;
+
+    if (type1->base_type == type2->base_type) {
+        switch (type1->base_type) {
+        case TYPE_POINTER:
+            return types_compatible(type1->return_type, type2->return_type);
+        case TYPE_ARRAY:
+            return type1->array_size == type2->array_size &&
+                   types_compatible(type1->return_type, type2->return_type);
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            return compare_struct_names(type1, type2);
+        default:
+            return 1;
+        }
+    }
+
+    /* Allow pointer <-> integer comparisons for null checks */
+    if (type1->base_type == TYPE_POINTER && is_integer_type(type2->base_type))
+        return 1;
+    if (type2->base_type == TYPE_POINTER && is_integer_type(type1->base_type))
+        return 1;
+
+    return 0;
 }
 
 void generate_if_statement(CodeGenContext* ctx, ASTNode* stmt) {
@@ -1232,14 +1653,76 @@ LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access) {
 }
 
 LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access) {
-    (void)access;  /* Suppress unused parameter warning */
+    if (!access || access->type != AST_MEMBER_ACCESS) {
+        codegen_error(ctx, "Invalid member access node");
+        return NULL;
+    }
+
+    ASTNode* object = access->data.member_access.object;
+    char* member_name = access->data.member_access.member;
+    int is_pointer_access = access->data.member_access.is_pointer_access;
+
+    if (!object || !member_name) {
+        codegen_error(ctx, "Invalid member access: missing object or member name");
+        return NULL;
+    }
+
+    /* Generate code for the object being accessed */
+    LLVMValue* object_value = generate_expression(ctx, object);
+    if (!object_value) {
+        codegen_error(ctx, "Failed to generate object for member access");
+        return NULL;
+    }
+
+    /* Determine the struct type */
+    TypeInfo* struct_type = object_value->llvm_type;
+    
+    /* If this is pointer access (->), dereference the pointer */
+    if (is_pointer_access) {
+        if (!struct_type || struct_type->base_type != TYPE_POINTER) {
+            codegen_error(ctx, "Arrow operator used on non-pointer type");
+            free_llvm_value(object_value);
+            return NULL;
+        }
+        /* Get the pointed-to type */
+        struct_type = struct_type->return_type;
+    }
+
+    /* Verify we have a struct type */
+    if (!struct_type || struct_type->base_type != TYPE_STRUCT) {
+        codegen_error(ctx, "Member access on non-struct type");
+        free_llvm_value(object_value);
+        return NULL;
+    }
+
+    /* For now, assume all struct members are integers at offset 0 */
+    /* This is a basic implementation - real implementation would need */
+    /* struct layout and member offset calculation */
+    
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
 
-    emit_instruction(ctx, "%%%s = load i32, i32* %%member_ptr", result_reg);
+    if (is_pointer_access) {
+        /* ptr->member: load from pointer + member offset */
+        emit_instruction(ctx, "%%%s = getelementptr %%struct.%s, %%struct.%s* %%%s, i32 0, i32 0",
+                        result_reg, struct_type->struct_name ? struct_type->struct_name : "unknown",
+                        struct_type->struct_name ? struct_type->struct_name : "unknown",
+                        object_value->name);
+        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result_reg, result_reg);
+    } else {
+        /* obj.member: get address of member and load */
+        char* member_ptr = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = getelementptr %%struct.%s, %%struct.%s* %%%s, i32 0, i32 0",
+                        member_ptr, struct_type->struct_name ? struct_type->struct_name : "unknown",
+                        struct_type->struct_name ? struct_type->struct_name : "unknown",
+                        object_value->name);
+        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result_reg, member_ptr);
+        free(member_ptr);
+    }
 
-    /* Free the original result_reg since create_llvm_value duplicated it */
+    /* Clean up */
+    free_llvm_value(object_value);
     free(result_reg);
     return result;
 }

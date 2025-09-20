@@ -83,6 +83,7 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr);
 LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call);
 LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access);
 LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access);
+LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op, LLVMValue* left, LLVMValue* right);
 LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier);
 LLVMValue* generate_constant(CodeGenContext* ctx, ASTNode* constant);
 LLVMValue* generate_string_literal(CodeGenContext* ctx, ASTNode* string_lit);

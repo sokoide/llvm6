@@ -37,6 +37,9 @@ TEST_CASE("Struct Declaration Test") {
 TEST_CASE("Struct Member Access Test") {
     // Test obj.member access - should fail initially
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create struct type
@@ -61,12 +64,17 @@ TEST_CASE("Struct Member Access Test") {
     free_ast_node(member_access);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 TEST_CASE("Struct Pointer Access Test") {
     // Test obj->member access - should fail initially
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create struct type
@@ -92,12 +100,17 @@ TEST_CASE("Struct Pointer Access Test") {
     free_ast_node(member_access);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 TEST_CASE("Struct Assignment Test") {
     // Test struct Point p1 = p2; (memberwise copy) - should fail initially
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create struct type
@@ -128,7 +141,9 @@ TEST_CASE("Struct Assignment Test") {
     free_ast_node(assign_expr);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 TEST_CASE("Pointer To Struct Test") {
@@ -149,6 +164,9 @@ TEST_CASE("Pointer To Struct Test") {
 TEST_CASE("Nested Struct Access Test") {
     // Test ptr->member->submember nested access - should fail initially
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create nested struct types
@@ -180,5 +198,7 @@ TEST_CASE("Nested Struct Access Test") {
     free_ast_node(second_access);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }

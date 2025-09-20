@@ -36,6 +36,9 @@ void test_struct_member_access() {
     std::cout << "Testing struct member access (obj.member)...\n";
     
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create struct type
@@ -66,13 +69,18 @@ void test_struct_member_access() {
     free_ast_node(member_access);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 void test_struct_pointer_access() {
     std::cout << "Testing struct pointer access (ptr->member)...\n";
     
     FILE* output = tmpfile();
+    if (!output) {
+        output = stdout;
+    }
     CodeGenContext* ctx = create_codegen_context(output);
     
     // Create struct type
@@ -104,7 +112,9 @@ void test_struct_pointer_access() {
     free_ast_node(member_access);
     if (result) free_llvm_value(result);
     free_codegen_context(ctx);
-    fclose(output);
+    if (output && output != stdout) {
+        fclose(output);
+    }
 }
 
 void test_pointer_to_struct() {

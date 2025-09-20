@@ -319,6 +319,11 @@ uninstall:
 	sudo rm -f /usr/local/bin/ccompiler
 	@echo "Uninstallation complete"
 
+# Format
+format:
+	@echo "Formatting all .cpp/.c/.h files..."
+	@find . -name "*.cpp" -o -name "*.c" -o -name "*.h" | xargs clang-format -i
+	@echo "Formatting complete."
 # Show help
 help:
 	@echo "Available targets:"

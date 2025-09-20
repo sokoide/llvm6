@@ -162,7 +162,19 @@ TypeInfo* duplicate_type_info(TypeInfo* original) {
 
 TypeInfo* create_pointer_type(TypeInfo* base_type) {
     TypeInfo* type = create_type_info(TYPE_POINTER);
-    type->return_type = base_type;  /* reusing return_type for base type */
+
+    if (base_type) {
+        type->return_type = duplicate_type_info(base_type);
+        if (base_type->base_type == TYPE_POINTER) {
+            type->pointer_level = base_type->pointer_level + 1;
+        } else {
+            type->pointer_level = 1;
+        }
+    } else {
+        type->return_type = NULL;
+        type->pointer_level = 1;
+    }
+
     return type;
 }
 
