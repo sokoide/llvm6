@@ -193,7 +193,10 @@ TEST(pointer_type_creation) {
     TypeInfo* ptr = create_pointer_type(base);
     ASSERT_NOT_NULL(ptr);
     ASSERT_EQ(ptr->base_type, TYPE_POINTER);
-    ASSERT(ptr->return_type == base);
+    ASSERT_NOT_NULL(ptr->return_type);
+    ASSERT_EQ(ptr->return_type->base_type, TYPE_INT);
+    ASSERT_EQ(ptr->pointer_level, 1);
+    free_type_info(base);
     free_type_info(ptr);
 }
 
