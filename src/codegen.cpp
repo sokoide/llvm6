@@ -98,6 +98,48 @@ void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
 }
 
 /* Expression generation */
+/* Helper function to load value from identifier if it's a variable pointer */
+LLVMValue* load_value_if_needed(CodeGenContext* ctx, LLVMValue* value) {
+    if (!value) return NULL;
+    
+    /* If it's already a constant, return as-is */
+    if (value->type == LLVM_VALUE_CONSTANT) {
+        return value;
+    }
+    
+    /* For registers and globals that represent variable addresses, we need to load the value */
+    if (value->type == LLVM_VALUE_REGISTER || value->type == LLVM_VALUE_GLOBAL) {
+        /* Check if this is a variable that needs loading */
+        Symbol* symbol = lookup_symbol(ctx, value->name);
+        if (symbol && !symbol->is_parameter && !symbol->is_global) {
+            /* Load the value from local variable */
+            char* load_reg = get_next_register(ctx);
+            LLVMValue* loaded_value = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, 
+                                                       duplicate_type_info(value->llvm_type));
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, value->name);
+            
+            free(load_reg);
+            free_llvm_value(value); /* Free the original pointer value */
+            return loaded_value;
+        } else if (symbol && symbol->is_global) {
+            /* Load the value from global variable */
+            char* load_reg = get_next_register(ctx);
+            LLVMValue* loaded_value = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, 
+                                                       duplicate_type_info(value->llvm_type));
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* @%s", load_reg, value->name);
+            
+            free(load_reg);
+            free_llvm_value(value); /* Free the original pointer value */
+            return loaded_value;
+        }
+    }
+    
+    /* Return as-is for parameters and other values */
+    return value;
+}
+
 LLVMValue* generate_expression(CodeGenContext* ctx, ASTNode* expr) {
     if (!expr)
         return NULL;
@@ -134,6 +176,29 @@ LLVMValue* generate_expression(CodeGenContext* ctx, ASTNode* expr) {
 LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
     LLVMValue* left = generate_expression(ctx, expr->data.binary_op.left);
     LLVMValue* right = generate_expression(ctx, expr->data.binary_op.right);
+
+    if (!left || !right) {
+        return NULL;
+    }
+
+    /* Assignment operators - handled separately (don't load values) */
+    if (expr->data.binary_op.op == OP_ASSIGN ||
+        expr->data.binary_op.op == OP_ADD_ASSIGN ||
+        expr->data.binary_op.op == OP_SUB_ASSIGN ||
+        expr->data.binary_op.op == OP_MUL_ASSIGN ||
+        expr->data.binary_op.op == OP_DIV_ASSIGN ||
+        expr->data.binary_op.op == OP_MOD_ASSIGN ||
+        expr->data.binary_op.op == OP_AND_ASSIGN ||
+        expr->data.binary_op.op == OP_OR_ASSIGN ||
+        expr->data.binary_op.op == OP_XOR_ASSIGN ||
+        expr->data.binary_op.op == OP_LSHIFT_ASSIGN ||
+        expr->data.binary_op.op == OP_RSHIFT_ASSIGN) {
+        return generate_assignment_op(ctx, expr);
+    }
+
+    /* For arithmetic/comparison operations, load values from variables */
+    left = load_value_if_needed(ctx, left);
+    right = load_value_if_needed(ctx, right);
 
     if (!left || !right) {
         return NULL;
@@ -192,28 +257,15 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
         op_name = "ashr";
         break;
 
-    /* Assignment operators - handled separately */
-    case OP_ASSIGN:
-    case OP_ADD_ASSIGN:
-    case OP_SUB_ASSIGN:
-    case OP_MUL_ASSIGN:
-    case OP_DIV_ASSIGN:
-    case OP_MOD_ASSIGN:
-    case OP_AND_ASSIGN:
-    case OP_OR_ASSIGN:
-    case OP_XOR_ASSIGN:
-    case OP_LSHIFT_ASSIGN:
-    case OP_RSHIFT_ASSIGN:
-        return generate_assignment_op(ctx, expr);
-
     default:
         codegen_error(ctx, "Unsupported binary operator: %d",
                       expr->data.binary_op.op);
+        free_llvm_value(left);
+        free_llvm_value(right);
         return NULL;
     }
 
-    /* Format operands properly - constants as literals, variables as registers
-     */
+    /* Format operands properly - constants as literals, variables as registers */
     char left_operand[64], right_operand[64];
     if (left->type == LLVM_VALUE_CONSTANT) {
         snprintf(left_operand, sizeof(left_operand), "%d",
@@ -291,8 +343,13 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
         return NULL;
     }
 
-    /* Generate right-hand side expression */
+    /* Generate right-hand side expression and load the value if it's a variable */
     LLVMValue* right_value = generate_expression(ctx, right_node);
+    if (!right_value)
+        return NULL;
+    
+    /* Load the value if it's a variable reference */
+    right_value = load_value_if_needed(ctx, right_value);
     if (!right_value)
         return NULL;
 
@@ -315,11 +372,9 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
         emit_instruction(ctx, "store i32 %s, i32* %%%s", right_operand,
                          symbol->name);
         /* Return the stored value */
-        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name,
-                         symbol->name);
+        emit_instruction(ctx, "%%%s = add i32 %s, 0", result->name, right_operand);
     } else {
-        /* Compound assignment: load variable, perform operation, store result
-         */
+        /* Compound assignment: load variable, perform operation, store result */
         char* temp_reg = get_next_register(ctx);
         emit_instruction(ctx, "%%%s = load i32, i32* %%%s", temp_reg,
                          symbol->name);
@@ -393,6 +448,34 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
 
     switch (expr->data.unary_op.op) {
     case UOP_PLUS:
+    case UOP_MINUS:
+    case UOP_NOT:
+    case UOP_BITNOT:
+        /* For these operations, we need the value, not the pointer */
+        operand = load_value_if_needed(ctx, operand);
+        if (!operand) {
+            free_llvm_value(result);
+            free(result_reg);
+            return NULL;
+        }
+        break;
+    case UOP_PREINC:
+    case UOP_PREDEC:
+    case UOP_POSTINC:
+    case UOP_POSTDEC:
+    case UOP_ADDR:
+        /* For these operations, we need the pointer, not the value */
+        break;
+    case UOP_DEREF:
+    case UOP_SIZEOF:
+        /* Handle these specially */
+        break;
+    default:
+        break;
+    }
+
+    switch (expr->data.unary_op.op) {
+    case UOP_PLUS:
         /* Unary plus is a no-op - just return the operand value */
         if (operand->type == LLVM_VALUE_CONSTANT) {
             emit_instruction(ctx, "%%%s = add i32 0, %s", result->name,
@@ -438,14 +521,17 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
             free(result_reg);
             return NULL;
         } else {
-            char* temp_reg = get_next_register(ctx);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", temp_reg,
-                             operand->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", temp_reg,
-                             operand->name);
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name,
-                             operand->name);
-            free(temp_reg);
+            /* Load current value, increment, store back, return new value */
+            char* load_reg = get_next_register(ctx);
+            char* inc_reg = get_next_register(ctx);
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, operand->name);
+            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", inc_reg, load_reg);
+            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", inc_reg, operand->name);
+            emit_instruction(ctx, "%%%s = add i32 %%%s, 0", result->name, inc_reg);
+            
+            free(load_reg);
+            free(inc_reg);
         }
         break;
     case UOP_PREDEC:
@@ -457,14 +543,17 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
             free(result_reg);
             return NULL;
         } else {
-            char* temp_reg = get_next_register(ctx);
-            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", temp_reg,
-                             operand->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", temp_reg,
-                             operand->name);
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name,
-                             operand->name);
-            free(temp_reg);
+            /* Load current value, decrement, store back, return new value */
+            char* load_reg = get_next_register(ctx);
+            char* dec_reg = get_next_register(ctx);
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg, operand->name);
+            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", dec_reg, load_reg);
+            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", dec_reg, operand->name);
+            emit_instruction(ctx, "%%%s = add i32 %%%s, 0", result->name, dec_reg);
+            
+            free(load_reg);
+            free(dec_reg);
         }
         break;
     case UOP_POSTINC:
@@ -476,14 +565,14 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
             free(result_reg);
             return NULL;
         } else {
-            char* temp_reg = get_next_register(ctx);
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name,
-                             operand->name);
-            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", temp_reg,
-                             result->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", temp_reg,
-                             operand->name);
-            free(temp_reg);
+            /* Load current value, return it, then increment and store */
+            char* inc_reg = get_next_register(ctx);
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name, operand->name);
+            emit_instruction(ctx, "%%%s = add i32 %%%s, 1", inc_reg, result->name);
+            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", inc_reg, operand->name);
+            
+            free(inc_reg);
         }
         break;
     case UOP_POSTDEC:
@@ -495,14 +584,14 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
             free(result_reg);
             return NULL;
         } else {
-            char* temp_reg = get_next_register(ctx);
-            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name,
-                             operand->name);
-            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", temp_reg,
-                             result->name);
-            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", temp_reg,
-                             operand->name);
-            free(temp_reg);
+            /* Load current value, return it, then decrement and store */
+            char* dec_reg = get_next_register(ctx);
+            
+            emit_instruction(ctx, "%%%s = load i32, i32* %%%s", result->name, operand->name);
+            emit_instruction(ctx, "%%%s = sub i32 %%%s, 1", dec_reg, result->name);
+            emit_instruction(ctx, "store i32 %%%s, i32* %%%s", dec_reg, operand->name);
+            
+            free(dec_reg);
         }
         break;
     case UOP_SIZEOF:
@@ -535,6 +624,14 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
         break;
     case UOP_DEREF: {
         /* Dereference operator *x - get value pointed to */
+        /* First load the value if needed (to get the pointer value) */
+        operand = load_value_if_needed(ctx, operand);
+        if (!operand) {
+            free_llvm_value(result);
+            free(result_reg);
+            return NULL;
+        }
+        
         if (operand->type == LLVM_VALUE_CONSTANT) {
             emit_instruction(ctx, "%%%s = inttoptr i32 %s to i32*", result->name,
                              operand->name);
@@ -549,7 +646,6 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
         free(result->name);
         result->name = safe_strdup(load_reg);
         free(load_reg);
-        /* Note: load_reg now becomes result_reg and will be freed when result is freed */
         break;
     }
     default:
@@ -585,28 +681,17 @@ LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
         return result;
     }
 
-    /* For local variables, load from memory */
+    /* For local variables, return the address (pointer) so increment/decrement can work */
     if (!symbol->is_global && ctx->current_function_name) {
-        char* load_reg = get_next_register(ctx);
         LLVMValue* result =
-            create_llvm_value(LLVM_VALUE_REGISTER, load_reg, duplicate_type_info(symbol->type));
-
-        emit_instruction(ctx, "%%%s = load i32, i32* %%%s", load_reg,
-                         symbol->name);
-        /* Free the original load_reg since create_llvm_value duplicated it */
-        free(load_reg);
+            create_llvm_value(LLVM_VALUE_REGISTER, symbol->name, duplicate_type_info(symbol->type));
         return result;
     }
 
     /* Global variables */
     if (symbol->is_global) {
-        char* load_reg = get_next_register(ctx);
         LLVMValue* result =
-            create_llvm_value(LLVM_VALUE_REGISTER, load_reg, duplicate_type_info(symbol->type));
-        emit_instruction(ctx, "%%%s = load i32, i32* @%s", load_reg,
-                         symbol->name);
-        /* Free the original load_reg since create_llvm_value duplicated it */
-        free(load_reg);
+            create_llvm_value(LLVM_VALUE_GLOBAL, symbol->name, duplicate_type_info(symbol->type));
         return result;
     }
 
