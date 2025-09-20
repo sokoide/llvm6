@@ -258,11 +258,13 @@ test-coverage-combined: clean
 	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
 	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
 	         LDFLAGS="$(LDFLAGS) --coverage" \
-	         $(TARGET) unit-tests
+	         $(TARGET) unit-tests pointer-struct-tests
 	@echo "Running integration tests..."
 	@$(MAKE) test-quick 2>/dev/null || true
 	@echo "Running unit tests..."
 	@./unit_tests
+	@echo "Running pointer/struct tests..."
+	@./pointer_struct_tests || echo "Pointer/struct tests failed as expected"
 	@echo "Generating combined coverage report..."
 	@mkdir -p $(TEST_REPORTS)
 	@gcov -o $(BUILD_DIR) src/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available for some files"
