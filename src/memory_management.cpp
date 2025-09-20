@@ -81,6 +81,7 @@ void* safe_malloc_debug(size_t size, const char* file, int line, const char* fun
     if (g_memory_context->debug_mode) {
         MemoryBlock* block = (MemoryBlock*)malloc(sizeof(MemoryBlock));
         if (block) {
+            block->address = ptr;
             block->size = size;
             block->file = file;
             block->line = line;
@@ -122,7 +123,12 @@ char* safe_strdup_debug(const char* str, const char* file, int line, const char*
 
 /* Safe free with debugging */
 void safe_free_debug(void* ptr, const char* file, int line, const char* function) {
-    if (!ptr) return;
+    (void)file;
+    (void)line;
+    (void)function;
+
+    if (!ptr)
+        return;
 
     if (!g_memory_context) {
         fprintf(stderr, "Warning: Freeing memory without memory context at %s:%d in %s()\n",
@@ -131,13 +137,15 @@ void safe_free_debug(void* ptr, const char* file, int line, const char* function
         return;
     }
 
+    size_t freed_size = 0;
+
     /* Find and remove block from tracking in debug mode */
     if (g_memory_context->debug_mode) {
         MemoryBlock* block = g_memory_context->allocated_blocks;
         while (block) {
-            /* Note: This is a simplified check - in practice you'd need to store the actual pointer */
-            if (block->file == file && block->line == line) {
-                /* Remove from list */
+            if (block->address == ptr) {
+                freed_size = block->size;
+
                 if (block->prev) {
                     block->prev->next = block->next;
                 } else {
@@ -147,12 +155,19 @@ void safe_free_debug(void* ptr, const char* file, int line, const char* function
                     block->next->prev = block->prev;
                 }
 
-                g_memory_context->stats.bytes_freed += block->size;
-                g_memory_context->stats.current_usage -= block->size;
                 free(block);
                 break;
             }
             block = block->next;
+        }
+    }
+
+    if (freed_size > 0) {
+        g_memory_context->stats.bytes_freed += freed_size;
+        if (g_memory_context->stats.current_usage >= freed_size) {
+            g_memory_context->stats.current_usage -= freed_size;
+        } else {
+            g_memory_context->stats.current_usage = 0;
         }
     }
 

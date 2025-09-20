@@ -17,6 +17,7 @@ typedef struct MemoryStats {
 
 /* Memory block header for tracking */
 typedef struct MemoryBlock {
+    void* address;
     size_t size;
     const char* file;
     int line;

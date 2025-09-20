@@ -539,11 +539,13 @@ TEST(memory_debug_tracking) {
     ASSERT_EQ(ctx->stats.current_usage >= 32, true);
 
     print_memory_stats(ctx);
+    std::cout << "[INFO] One tracked allocation is expected before free\n";
     print_memory_leaks(ctx);
 
     safe_free_debug(ptr, "unit", 120, __func__);
     ASSERT_EQ(ctx->stats.deallocations, ctx->stats.allocations);
-    print_memory_leaks(ctx);
+    bool leaks_remaining = check_memory_leaks(ctx);
+    ASSERT_EQ(leaks_remaining, false);
 
     disable_memory_debugging(ctx);
     CLEANUP_MEMORY_MANAGEMENT();
