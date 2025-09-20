@@ -85,7 +85,7 @@ $(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp src/ast.h src
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 $(BUILD_DIR)/lex.yy.o: $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+	$(CC) $(CFLAGS) -Wno-sign-compare -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Generate parser from grammar
 $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: src/grammar.y | $(BUILD_DIR)/generated

@@ -377,8 +377,8 @@ struct_or_union_specifier
 	;
 
 struct_or_union
-	: STRUCT  { $$ = "struct"; }
-	| UNION   { $$ = "union"; }
+	: STRUCT  { $$ = (char*)"struct"; }
+	| UNION   { $$ = (char*)"union"; }
 	;
 
 struct_declaration_list
@@ -516,9 +516,9 @@ parameter_declaration
 	: declaration_specifiers declarator
 		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $2->data.identifier.name, NULL); }
 	| declaration_specifiers abstract_declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "param", NULL); }
+		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), (char*)"param", NULL); }
 	| declaration_specifiers
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), "param", NULL); }
+		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), (char*)"param", NULL); }
 	;
 
 identifier_list

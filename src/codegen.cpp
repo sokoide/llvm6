@@ -958,6 +958,7 @@ void generate_runtime_declarations(CodeGenContext* ctx) {
 
 /* Error reporting */
 void codegen_error(CodeGenContext* ctx, const char* message, ...) {
+    (void)ctx;  /* Suppress unused parameter warning */
     va_list args;
     va_start(args, message);
 
@@ -972,6 +973,7 @@ void codegen_error(CodeGenContext* ctx, const char* message, ...) {
 }
 
 void codegen_warning(CodeGenContext* ctx, const char* message, ...) {
+    (void)ctx;  /* Suppress unused parameter warning */
     va_list args;
     va_start(args, message);
 
@@ -1217,6 +1219,7 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
 }
 
 LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access) {
+    (void)access;  /* Suppress unused parameter warning */
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
@@ -1229,6 +1232,7 @@ LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access) {
 }
 
 LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access) {
+    (void)access;  /* Suppress unused parameter warning */
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
