@@ -107,7 +107,7 @@ void test_type_info() {
 void test_pointer_type() {
     TypeInfo* base = create_type_info(TYPE_INT);
     TypeInfo* ptr = create_pointer_type(base);
-    if (ptr && ptr->base_type == TYPE_POINTER && ptr->pointer_level == 1) {
+    if (ptr && ptr->base_type == TYPE_POINTER && ptr->return_type == base) {
         std::cout << "✓ Pointer type test passed\n";
         passed++;
         free_type_info(ptr);

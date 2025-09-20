@@ -11,10 +11,19 @@ BUILD_DIR = build
 TEST_FIXTURES = tests/fixtures
 TEST_OUTPUT = tests/output
 TEST_REPORTS = tests/reports
+UNIT_TEST_DIR = tests/unit
+UNIT_TEST_BUILD = $(BUILD_DIR)/unit_tests
 
 # Source files
 SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/memory_management.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
+
+# Unit test files
+UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/basic_test.cpp
+UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/basic_test.o
+
+# Library objects (without main.o for unit tests)
+LIB_OBJECTS = $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Generated files
 GENERATED = $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.output
@@ -46,6 +55,9 @@ $(BUILD_DIR):
 
 $(BUILD_DIR)/generated:
 	mkdir -p $(BUILD_DIR)/generated
+
+$(UNIT_TEST_BUILD):
+	mkdir -p $(UNIT_TEST_BUILD)
 
 $(TEST_OUTPUT):
 	mkdir -p $(TEST_OUTPUT)
@@ -85,6 +97,10 @@ $(BUILD_DIR)/generated/lex.yy.c: src/lexer.l $(BUILD_DIR)/generated/grammar.tab.
 	@echo "Generating lexer..."
 	flex -o $@ src/lexer.l
 
+# Unit test object files
+$(UNIT_TEST_BUILD)/basic_test.o: $(UNIT_TEST_DIR)/basic_test.cpp src/ast.h src/error_handling.h src/memory_management.h src/codegen.h | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
 # Clean generated and object files
 clean:
 	@echo "Cleaning generated files..."
@@ -92,9 +108,15 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 # Clean everything including backup files and coverage data
-distclean: clean clean-coverage
+distclean: clean clean-coverage clean-unit-tests
 	rm -f *~ *.bak core
 	rm -rf $(TEST_OUTPUT)/* $(TEST_REPORTS)/*
+
+# Clean unit test files
+clean-unit-tests:
+	@echo "Cleaning unit test files..."
+	rm -rf $(UNIT_TEST_BUILD)
+	rm -f ./unit_tests
 
 # Run the compiler (requires input)
 run: $(TARGET)
@@ -174,6 +196,55 @@ validate: test
 		fi; \
 	done
 
+# Unit tests
+unit-tests: $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS)
+	@echo "Building unit tests..."
+	$(CXX) $(CXXFLAGS) -o ./unit_tests $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS)
+
+# Run unit tests
+test-unit: unit-tests
+	@echo "Running unit tests..."
+	./unit_tests
+
+# Run unit tests with coverage
+test-unit-coverage: clean
+	@echo "Building unit tests with coverage instrumentation..."
+	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         LDFLAGS="$(LDFLAGS) --coverage" \
+	         unit-tests
+	@echo "Running unit tests for coverage analysis..."
+	@./unit_tests
+	@echo "Generating unit test coverage report..."
+	@mkdir -p $(TEST_REPORTS)
+	@gcov -o $(BUILD_DIR) src/*.cpp 2>/dev/null || echo "gcov not available for some files"
+	@gcov -o $(UNIT_TEST_BUILD) tests/unit/*.cpp 2>/dev/null || echo "gcov not available for test files"
+	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
+	@echo "Unit test coverage files generated in $(TEST_REPORTS)/"
+
+# Combined coverage (integration + unit tests)
+test-coverage-combined: clean
+	@echo "Building with coverage instrumentation..."
+	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
+	         LDFLAGS="$(LDFLAGS) --coverage" \
+	         $(TARGET) unit-tests
+	@echo "Running integration tests..."
+	@$(MAKE) test-quick 2>/dev/null || true
+	@echo "Running unit tests..."
+	@./unit_tests
+	@echo "Generating combined coverage report..."
+	@mkdir -p $(TEST_REPORTS)
+	@gcov -o $(BUILD_DIR) src/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available for some files"
+	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
+	@echo "Combined coverage analysis complete."
+	@if command -v lcov >/dev/null 2>&1; then \
+		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info 2>/dev/null && \
+		lcov --summary $(TEST_REPORTS)/coverage.info 2>/dev/null; \
+	else \
+		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
+	fi
+
 # Code coverage analysis
 test-coverage: clean
 	@echo "Building with coverage instrumentation..."
@@ -233,6 +304,13 @@ help:
 	@echo "  validate       - Validate generated LLVM IR syntax"
 	@echo "  clean-coverage - Remove coverage analysis files"
 	@echo ""
+	@echo "Unit testing targets:"
+	@echo "  unit-tests           - Build unit tests"
+	@echo "  test-unit            - Run unit tests"
+	@echo "  test-unit-coverage   - Run unit tests with coverage"
+	@echo "  test-coverage-combined - Run both integration and unit tests with coverage"
+	@echo "  clean-unit-tests     - Remove unit test build files"
+	@echo ""
 	@echo "Installation:"
 	@echo "  install        - Install compiler system-wide"
 	@echo "  uninstall      - Remove system-wide installation"
@@ -244,6 +322,8 @@ help:
 	@echo "  make debug && ./ccompiler -v -a program.c"
 	@echo "  make test && make validate"
 	@echo "  make test-coverage    # Generate code coverage report"
+	@echo "  make test-unit        # Run unit tests"
+	@echo "  make test-coverage-combined  # Complete coverage analysis"
 
 # Check dependencies
 check-deps:
@@ -258,4 +338,4 @@ check-deps:
 		echo "⚠ LLVM not found - some features may be limited"; \
 	fi
 
-.PHONY: all clean distclean run debug test test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage
+.PHONY: all clean distclean run debug test test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests
