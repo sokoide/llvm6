@@ -104,6 +104,8 @@ $(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp src/ast.h src
 $(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp src/main.cpp | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
+
+
 # Clean generated and object files
 clean:
 	@echo "Cleaning generated files..."
@@ -341,4 +343,13 @@ check-deps:
 		echo "⚠ LLVM not found - some features may be limited"; \
 	fi
 
-.PHONY: all clean distclean run debug test test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests
+# Benchmarking targets
+benchmark: $(TARGET)
+	@echo \"Running performance benchmarks...\"
+	@scripts/benchmark.sh
+
+benchmark-stress: $(TARGET)
+	@echo \"Running stress tests...\"
+	@scripts/benchmark.sh --stress
+
+.PHONY: all clean distclean run debug test test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests benchmark benchmark-stress

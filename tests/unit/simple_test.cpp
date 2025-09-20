@@ -569,6 +569,182 @@ TEST(codegen_return_variants) {
     fclose(output);
 }
 
+// Additional tests for increased coverage
+
+TEST(print_usage_function) {
+    // Test print_usage function
+    FILE* original_stdout = stdout;
+    FILE* temp = tmpfile();
+    stdout = temp;
+    
+    print_usage("test_compiler");
+    
+    stdout = original_stdout;
+    
+    fseek(temp, 0, SEEK_END);
+    long size = ftell(temp);
+    fclose(temp);
+    
+    if (size <= 0) {
+        throw std::runtime_error("print_usage produced no output");
+    }
+}
+
+TEST(parse_arguments_debug_option) {
+    char* argv[] = {(char*)"test", (char*)"-d"};
+    
+    memset(&options, 0, sizeof(options));
+    optind = 1;
+    
+    int result = parse_arguments(2, argv);
+    (void)result;
+    
+    if (options.debug_mode != 1) {
+        throw std::runtime_error("Debug option not set correctly");
+    }
+}
+
+TEST(parse_arguments_verbose_option) {
+    char* argv[] = {(char*)"test", (char*)"-v"};
+    
+    memset(&options, 0, sizeof(options));
+    optind = 1;
+    
+    int result = parse_arguments(2, argv);
+    (void)result;
+    
+    if (options.verbose != 1) {
+        throw std::runtime_error("Verbose option not set correctly");
+    }
+}
+
+TEST(parse_arguments_dump_ast_option) {
+    char* argv[] = {(char*)"test", (char*)"-a"};
+    
+    memset(&options, 0, sizeof(options));
+    optind = 1;
+    
+    int result = parse_arguments(2, argv);
+    (void)result;
+    
+    if (options.dump_ast != 1) {
+        throw std::runtime_error("Dump AST option not set correctly");
+    }
+}
+
+TEST(debug_and_verbose_print_functions) {
+    // Test debug print when debug mode is off
+    options.debug_mode = 0;
+    debug_print("test debug message");
+    
+    // Test debug print when debug mode is on  
+    options.debug_mode = 1;
+    debug_print("test debug message with debug on");
+    
+    // Test verbose print when verbose mode is off
+    options.verbose = 0;
+    verbose_print("test verbose message");
+    
+    // Test verbose print when verbose mode is on
+    options.verbose = 1;
+    verbose_print("test verbose message with verbose on");
+    
+    // Reset for safety
+    options.debug_mode = 0;
+    options.verbose = 0;
+}
+
+TEST(compiler_info_function) {
+    FILE* original_stdout = stdout;
+    FILE* temp = tmpfile();
+    stdout = temp;
+    
+    compiler_info();
+    
+    stdout = original_stdout;
+    
+    fseek(temp, 0, SEEK_END);
+    long size = ftell(temp);
+    fclose(temp);
+    
+    if (size <= 0) {
+        throw std::runtime_error("compiler_info produced no output");
+    }
+}
+
+TEST(create_array_type) {
+    TypeInfo* base = create_type_info(TYPE_INT);
+    TypeInfo* array = create_array_type(base, 10);
+    
+    if (!array || array->base_type != TYPE_ARRAY || 
+        array->array_size != 10 || array->return_type != base) {
+        throw std::runtime_error("Array type creation failed");
+    }
+    
+    free_type_info(array);
+}
+
+TEST(duplicate_type_info_with_return_type) {
+    TypeInfo* original = create_type_info(TYPE_POINTER);
+    original->return_type = create_type_info(TYPE_INT);
+    
+    TypeInfo* copy = duplicate_type_info(original);
+    
+    if (!copy || copy->base_type != TYPE_POINTER || 
+        !copy->return_type || copy->return_type->base_type != TYPE_INT) {
+        throw std::runtime_error("Type duplication with return type failed");
+    }
+    
+    free_type_info(copy);
+    free_type_info(original);
+}
+
+TEST(ast_conditional_statements) {
+    // Test if/while/for statement creation and cleanup
+    ASTNode* if_stmt = create_ast_node(AST_IF_STMT);
+    if_stmt->data.if_stmt.condition = create_constant_node(1, TYPE_INT);
+    if_stmt->data.if_stmt.then_stmt = create_ast_node(AST_COMPOUND_STMT);
+    if_stmt->data.if_stmt.else_stmt = create_ast_node(AST_COMPOUND_STMT);
+    
+    ASTNode* while_stmt = create_ast_node(AST_WHILE_STMT);
+    while_stmt->data.while_stmt.condition = create_constant_node(1, TYPE_INT);
+    while_stmt->data.while_stmt.body = create_ast_node(AST_COMPOUND_STMT);
+    
+    ASTNode* for_stmt = create_ast_node(AST_FOR_STMT);
+    for_stmt->data.for_stmt.init = create_ast_node(AST_VARIABLE_DECL);
+    for_stmt->data.for_stmt.condition = create_constant_node(1, TYPE_INT);
+    for_stmt->data.for_stmt.update = create_ast_node(AST_ASSIGNMENT);
+    for_stmt->data.for_stmt.body = create_ast_node(AST_COMPOUND_STMT);
+    
+    if (!if_stmt || !while_stmt || !for_stmt) {
+        throw std::runtime_error("Conditional statement creation failed");
+    }
+    
+    free_ast_node(if_stmt);
+    free_ast_node(while_stmt);
+    free_ast_node(for_stmt);
+}
+
+TEST(ast_additional_node_types) {
+    // Test various AST node types that might not be covered
+    ASTNode* array_access = create_ast_node(AST_ARRAY_ACCESS);
+    ASTNode* member_access = create_ast_node(AST_MEMBER_ACCESS);
+    ASTNode* cast_expr = create_ast_node(AST_CAST);
+    ASTNode* switch_stmt = create_ast_node(AST_SWITCH_STMT);
+    
+    if (!array_access || array_access->type != AST_ARRAY_ACCESS ||
+        !member_access || member_access->type != AST_MEMBER_ACCESS ||
+        !cast_expr || cast_expr->type != AST_CAST ||
+        !switch_stmt || switch_stmt->type != AST_SWITCH_STMT) {
+        throw std::runtime_error("AST node type creation failed");
+    }
+    
+    free_ast_node(array_access);
+    free_ast_node(member_access);
+    free_ast_node(cast_expr);
+    free_ast_node(switch_stmt);
+}
+
 TEST(codegen_generate_full_program) {
     FILE* output = tmpfile();
     ASSERT_NOT_NULL(output);
@@ -721,6 +897,18 @@ int main() {
     run_test_llvm_type_to_string_conversion();
     run_test_codegen_return_variants();
     run_test_codegen_generate_full_program();
+    
+    // Additional coverage tests
+    run_test_print_usage_function();
+    run_test_parse_arguments_debug_option();
+    run_test_parse_arguments_verbose_option();
+    run_test_parse_arguments_dump_ast_option();
+    run_test_debug_and_verbose_print_functions();
+    run_test_compiler_info_function();
+    run_test_create_array_type();
+    run_test_duplicate_type_info_with_return_type();
+    run_test_ast_conditional_statements();
+    run_test_ast_additional_node_types();
     
     std::cout << "\n=====================\n";
     std::cout << "Test Results: " << tests_passed << " passed, " << tests_failed << " failed\n";
