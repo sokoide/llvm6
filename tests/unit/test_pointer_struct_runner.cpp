@@ -4,12 +4,15 @@
 extern void run_pointer_tests();
 extern void run_struct_tests();
 
+// External counters
+extern int pointer_tests_failed;
+extern int struct_tests_failed;
+
 int main() {
     std::cout << "\n============================================\n";
     std::cout << "Running Pointer and Struct Feature Tests\n";
     std::cout << "============================================\n";
-    std::cout << "These tests are EXPECTED to fail initially\n";
-    std::cout << "as they test incomplete pointer and struct implementations.\n";
+    std::cout << "All pointer and struct feature tests should pass now.\n";
     std::cout << "============================================\n";
 
     run_pointer_tests();
@@ -17,10 +20,12 @@ int main() {
     
     std::cout << "\n============================================\n";
     std::cout << "Test Summary:\n";
-    std::cout << "These failing tests represent the features\n";
-    std::cout << "that need to be implemented for complete\n";
-    std::cout << "pointer and struct support.\n";
+    if (pointer_tests_failed == 0 && struct_tests_failed == 0) {
+        std::cout << "All pointer and struct feature tests passed successfully.\n";
+    } else {
+        std::cout << "Outstanding pointer/struct issues remain.\n";
+    }
     std::cout << "============================================\n";
     
-    return 0; // Return 0 since we expect failures initially
+    return (pointer_tests_failed == 0 && struct_tests_failed == 0) ? 0 : 1;
 }

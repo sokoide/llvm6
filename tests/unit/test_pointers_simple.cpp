@@ -56,7 +56,7 @@ void test_address_of_operator() {
         std::cout << "✓ Address-of operator test passed\n";
         pointer_tests_passed++;
     } else {
-        std::cout << "✗ Address-of operator test failed - incomplete pointer support (EXPECTED)\n";
+        std::cout << "✗ Address-of operator test failed\n";
         pointer_tests_failed++;
     }
     
@@ -94,7 +94,7 @@ void test_dereference_operator() {
         std::cout << "✓ Dereference operator test passed\n";
         pointer_tests_passed++;
     } else {
-        std::cout << "✗ Dereference operator test failed - incomplete pointer support (EXPECTED)\n";
+        std::cout << "✗ Dereference operator test failed\n";
         pointer_tests_failed++;
     }
     
@@ -133,7 +133,7 @@ void test_pointer_arithmetic() {
         std::cout << "✓ Pointer arithmetic test passed\n";
         pointer_tests_passed++;
     } else {
-        std::cout << "✗ Pointer arithmetic test failed - incomplete pointer arithmetic (EXPECTED)\n";
+        std::cout << "✗ Pointer arithmetic test failed\n";
         pointer_tests_failed++;
     }
     
@@ -156,7 +156,7 @@ void test_multi_level_pointers() {
         std::cout << "✓ Multi-level pointers test passed\n";
         pointer_tests_passed++;
     } else {
-        std::cout << "✗ Multi-level pointers test failed - incorrect pointer_level (EXPECTED)\n";
+        std::cout << "✗ Multi-level pointers test failed\n";
         pointer_tests_failed++;
     }
     
@@ -166,7 +166,7 @@ void test_multi_level_pointers() {
 }
 
 void run_pointer_tests() {
-    std::cout << "\n=== Running Pointer Feature Tests (Expected to Fail) ===\n";
+    std::cout << "\n=== Running Pointer Feature Tests ===\n";
     
     test_pointer_declaration();
     test_address_of_operator(); 
@@ -176,6 +176,6 @@ void run_pointer_tests() {
     
     std::cout << "\n=== Pointer Test Results ===\n";
     std::cout << "Passed: " << pointer_tests_passed << "\n";
-    std::cout << "Failed: " << pointer_tests_failed << " (Expected failures due to incomplete implementation)\n";
+    std::cout << "Failed: " << pointer_tests_failed << "\n";
     std::cout << "Total:  " << (pointer_tests_passed + pointer_tests_failed) << "\n";
 }

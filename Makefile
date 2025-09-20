@@ -233,11 +233,11 @@ test-unit: unit-tests pointer-struct-tests
 	./unit_tests
 	@echo ""
 	@echo "=== Pointer/Struct Unit Tests ==="
-	./pointer_struct_tests || echo "Note: Some pointer/struct tests may fail due to incomplete implementation"
+	@./pointer_struct_tests || (echo "Note: Some pointer/struct tests failed due to incomplete implementation" && true)
 
 # Run pointer/struct tests
 test-pointer-struct: pointer-struct-tests
-	@echo "Running pointer and struct tests (expect failures)..."
+	@echo "Running pointer and struct tests..."
 	./pointer_struct_tests
 
 # Comprehensive test suite (integration + unit tests)

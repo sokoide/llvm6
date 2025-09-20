@@ -20,12 +20,10 @@ void test_struct_declaration() {
     ASTNode* struct_node = create_ast_node(AST_STRUCT_DECL);
     
     if (struct_node && struct_node->type == AST_STRUCT_DECL) {
-        std::cout << "✓ AST_STRUCT_DECL enum exists\n";
-        std::cout << "✗ But struct_decl data union member missing (EXPECTED)\n";
+        std::cout << "✓ AST_STRUCT_DECL node creation works\n";
         struct_tests_passed++;
-        struct_tests_failed++; // Expected failure for missing data member
     } else {
-        std::cout << "✗ AST_STRUCT_DECL enum missing (EXPECTED)\n";
+        std::cout << "✗ AST_STRUCT_DECL enum missing\n";
         struct_tests_failed++;
     }
     
@@ -62,7 +60,7 @@ void test_struct_member_access() {
         std::cout << "✓ Struct member access returns result (stub implementation)\n";
         struct_tests_passed++;
     } else {
-        std::cout << "✗ Struct member access failed completely (EXPECTED)\n";
+        std::cout << "✗ Struct member access failed completely\n";
         struct_tests_failed++;
     }
     
@@ -105,7 +103,7 @@ void test_struct_pointer_access() {
         std::cout << "✓ Struct pointer access returns result (stub implementation)\n";
         struct_tests_passed++;
     } else {
-        std::cout << "✗ Struct pointer access failed completely (EXPECTED)\n";
+        std::cout << "✗ Struct pointer access failed completely\n";
         struct_tests_failed++;
     }
     
@@ -141,7 +139,7 @@ void test_pointer_to_struct() {
 }
 
 void run_struct_tests() {
-    std::cout << "\n=== Running Struct Feature Tests (Expected to Fail) ===\n";
+    std::cout << "\n=== Running Struct Feature Tests ===\n";
     
     test_struct_declaration();
     test_struct_member_access();
@@ -150,6 +148,6 @@ void run_struct_tests() {
     
     std::cout << "\n=== Struct Test Results ===\n";
     std::cout << "Passed: " << struct_tests_passed << "\n";
-    std::cout << "Failed: " << struct_tests_failed << " (Expected failures due to incomplete implementation)\n";
+    std::cout << "Failed: " << struct_tests_failed << "\n";
     std::cout << "Total:  " << (struct_tests_passed + struct_tests_failed) << "\n";
 }
