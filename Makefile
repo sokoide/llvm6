@@ -19,8 +19,12 @@ SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/me
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Unit test files
-UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp
-UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o
+UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp $(UNIT_TEST_DIR)/test_main.cpp
+UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o $(UNIT_TEST_BUILD)/test_main.o
+
+# Pointer/Struct test files
+POINTER_STRUCT_TEST_SOURCES = $(UNIT_TEST_DIR)/test_pointers_simple.cpp $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp $(UNIT_TEST_DIR)/test_pointer_struct_runner.cpp
+POINTER_STRUCT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/test_pointers_simple.o $(UNIT_TEST_BUILD)/test_structs_simple_fixed.o $(UNIT_TEST_BUILD)/test_pointer_struct_runner.o
 
 # Library objects (without main.o for unit tests)
 LIB_OBJECTS = $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o
@@ -103,6 +107,19 @@ $(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp src/ast.h src
 
 $(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp src/main.cpp | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
+# Pointer/Struct test object files
+$(UNIT_TEST_BUILD)/test_pointers_simple.o: $(UNIT_TEST_DIR)/test_pointers_simple.cpp src/ast.h src/codegen.h src/memory_management.h src/constants.h | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
+$(UNIT_TEST_BUILD)/test_structs_simple_fixed.o: $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp src/ast.h src/codegen.h src/memory_management.h src/constants.h | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
+$(UNIT_TEST_BUILD)/test_pointer_struct_runner.o: $(UNIT_TEST_DIR)/test_pointer_struct_runner.cpp | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(UNIT_TEST_BUILD)/test_main.o: $(UNIT_TEST_DIR)/test_main.cpp | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 
 
@@ -206,10 +223,20 @@ unit-tests: $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS)
 	@echo "Building unit tests..."
 	$(CXX) $(CXXFLAGS) -o ./unit_tests $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS)
 
+# Pointer/Struct tests
+pointer-struct-tests: $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS)
+	@echo "Building pointer and struct tests..."
+	$(CXX) $(CXXFLAGS) -o ./pointer_struct_tests $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS)
+
 # Run unit tests
 test-unit: unit-tests
 	@echo "Running unit tests..."
 	./unit_tests
+
+# Run pointer/struct tests
+test-pointer-struct: pointer-struct-tests
+	@echo "Running pointer and struct tests (expect failures)..."
+	./pointer_struct_tests
 
 # Run unit tests with coverage
 test-unit-coverage: clean
