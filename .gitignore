@@ -6,11 +6,17 @@ ccompiler
 *.o
 *.obj
 
-# Generated files by bison/flex
-grammar.tab.cpp
-grammar.tab.hpp
-grammar.output
-lex.yy.c
+# Build directory (contains all generated files)
+build/
+
+# Test outputs
+tests/output/
+tests/reports/
+
+# Coverage files
+*.gcda
+*.gcno
+*.gcov
 
 # Build artifacts
 *.a
@@ -30,9 +36,6 @@ lex.yy.c
 *.swo
 *~
 .DS_Store
-
-# Temporary
-tests/*.ll
 
 # Logs and temporary files
 *.log

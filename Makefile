@@ -6,12 +6,18 @@ CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Isrc
 CFLAGS = -Wall -Wextra -O2
 LIBS = -ly
 
+# Directory structure
+BUILD_DIR = build
+TEST_FIXTURES = tests/fixtures
+TEST_OUTPUT = tests/output
+TEST_REPORTS = tests/reports
+
 # Source files
-SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp grammar.tab.cpp lex.yy.c
-OBJECTS = main.o ast.o codegen.o grammar.tab.o lex.yy.o
+SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
+OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Generated files
-GENERATED = grammar.tab.cpp grammar.tab.hpp lex.yy.c grammar.output
+GENERATED = $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.output
 
 # LLVM configuration
 LLVM_CONFIG = llvm-config
@@ -34,40 +40,55 @@ $(TARGET): $(OBJECTS)
 	@echo "Linking $(TARGET)..."
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS) $(LIBS)
 
+# Create build directories
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/generated:
+	mkdir -p $(BUILD_DIR)/generated
+
+$(TEST_OUTPUT):
+	mkdir -p $(TEST_OUTPUT)
+
+$(TEST_REPORTS):
+	mkdir -p $(TEST_REPORTS)
+
 # Object file dependencies
-main.o: src/main.cpp src/ast.h src/codegen.h grammar.tab.hpp
-	$(CXX) $(CXXFLAGS) -c src/main.cpp -o main.o
+$(BUILD_DIR)/main.o: src/main.cpp src/ast.h src/codegen.h $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c src/main.cpp -o $@
 
-ast.o: src/ast.cpp src/ast.h
-	$(CXX) $(CXXFLAGS) -c src/ast.cpp -o ast.o
+$(BUILD_DIR)/ast.o: src/ast.cpp src/ast.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c src/ast.cpp -o $@
 
-codegen.o: src/codegen.cpp src/codegen.h src/ast.h
-	$(CXX) $(CXXFLAGS) -c src/codegen.cpp -o codegen.o
+$(BUILD_DIR)/codegen.o: src/codegen.cpp src/codegen.h src/ast.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c src/codegen.cpp -o $@
 
-grammar.tab.o: grammar.tab.cpp src/ast.h src/codegen.h
-	$(CXX) $(CXXFLAGS) -c grammar.tab.cpp -o grammar.tab.o
+$(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp src/ast.h src/codegen.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
-lex.yy.o: lex.yy.c grammar.tab.hpp
-	$(CC) $(CFLAGS) -c lex.yy.c -o lex.yy.o
+$(BUILD_DIR)/lex.yy.o: $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Generate parser from grammar
-grammar.tab.cpp grammar.tab.hpp: src/grammar.y
+$(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: src/grammar.y | $(BUILD_DIR)/generated
 	@echo "Generating parser..."
-	bison -d -v -o grammar.tab.cpp src/grammar.y
+	bison -d -v -o $(BUILD_DIR)/generated/grammar.tab.cpp src/grammar.y
 
 # Generate lexer from specification
-lex.yy.c: src/lexer.l grammar.tab.hpp
+$(BUILD_DIR)/generated/lex.yy.c: src/lexer.l $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)/generated
 	@echo "Generating lexer..."
-	flex src/lexer.l
+	flex -o $@ src/lexer.l
 
 # Clean generated and object files
 clean:
 	@echo "Cleaning generated files..."
-	rm -f $(TARGET) *.o $(GENERATED)
+	rm -f $(TARGET)
+	rm -rf $(BUILD_DIR)
 
 # Clean everything including backup files and coverage data
 distclean: clean clean-coverage
 	rm -f *~ *.bak core
+	rm -rf $(TEST_OUTPUT)/* $(TEST_REPORTS)/*
 
 # Run the compiler (requires input)
 run: $(TARGET)
@@ -89,16 +110,16 @@ debug: CFLAGS += -g -DDEBUG -O0
 debug: $(TARGET)
 
 # Comprehensive test suite
-test: $(TARGET)
+test: $(TARGET) | $(TEST_OUTPUT)
 	@echo "Running comprehensive compiler test suite..."
 	@echo "====================================================="
 	@failed=0; total=0; \
-	for test_file in tests/*.c; do \
+	for test_file in $(TEST_FIXTURES)/*.c; do \
 		if [ -f "$$test_file" ]; then \
 			total=$$((total + 1)); \
 			test_name=$$(basename "$$test_file" .c); \
 			echo "Testing $$test_name..."; \
-			if $(TARGET) "$$test_file" -o "tests/$$test_name.ll" 2>/dev/null; then \
+			if $(TARGET) "$$test_file" -o "$(TEST_OUTPUT)/$$test_name.ll" 2>/dev/null; then \
 				echo "  ✓ $$test_name: PASSED"; \
 			else \
 				echo "  ✗ $$test_name: FAILED"; \
@@ -116,33 +137,35 @@ test: $(TARGET)
 	fi
 
 # Detailed test with verbose output
-test-verbose: $(TARGET)
+test-verbose: $(TARGET) | $(TEST_OUTPUT)
 	@echo "Running tests with verbose output..."
-	@for test_file in tests/*.c; do \
+	@for test_file in $(TEST_FIXTURES)/*.c; do \
 		if [ -f "$$test_file" ]; then \
 			test_name=$$(basename "$$test_file" .c); \
 			echo "=== Testing $$test_name ==="; \
 			echo "Source:"; \
 			head -5 "$$test_file"; \
 			echo "Output:"; \
-			$(TARGET) "$$test_file" -o "tests/$$test_name.ll" -v || true; \
+			$(TARGET) "$$test_file" -o "$(TEST_OUTPUT)/$$test_name.ll" -v || true; \
 			echo ""; \
 		fi; \
 	done
 
 # Quick test of basic functionality
-test-quick: $(TARGET)
+test-quick: $(TARGET) | $(TEST_OUTPUT)
 	@echo "Running quick functionality tests..."
-	@$(TARGET) tests/simple.c -o tests/simple.ll >/dev/null 2>&1 && echo "✓ Basic compilation works" || echo "✗ Basic compilation failed"
-	@$(TARGET) tests/variables.c >/dev/null 2>&1 && echo "✓ Variable handling works" || echo "✗ Variable handling failed"
-	@$(TARGET) tests/functions.c >/dev/null 2>&1 && echo "✓ Function parsing works" || echo "✗ Function parsing failed"
+	@$(TARGET) $(TEST_FIXTURES)/simple.c -o $(TEST_OUTPUT)/simple.ll >/dev/null 2>&1 && echo "✓ Basic compilation works" || echo "✗ Basic compilation failed"
+	@$(TARGET) $(TEST_FIXTURES)/variables.c >/dev/null 2>&1 && echo "✓ Variable handling works" || echo "✗ Variable handling failed"
+	@$(TARGET) $(TEST_FIXTURES)/functions.c >/dev/null 2>&1 && echo "✓ Function parsing works" || echo "✗ Function parsing failed"
 
 # Validate generated LLVM IR
 validate: test
 	@echo "Validating LLVM IR..."
-	@for file in tests/*.ll; do \
-		echo "Validating $$file..."; \
-		llvm-as "$$file" -o /dev/null 2>/dev/null && echo "✓ $$file is valid" || echo "✗ $$file has errors"; \
+	@for file in $(TEST_OUTPUT)/*.ll; do \
+		if [ -f "$$file" ]; then \
+			echo "Validating $$file..."; \
+			llvm-as "$$file" -o /dev/null 2>/dev/null && echo "✓ $$file is valid" || echo "✗ $$file has errors"; \
+		fi; \
 	done
 
 # Code coverage analysis
@@ -155,14 +178,15 @@ test-coverage: clean
 	@echo "Running tests for coverage analysis..."
 	@$(MAKE) test-quick 2>/dev/null || true
 	@echo "Generating coverage report..."
-	@mkdir -p coverage
-	@gcov -o . src/*.cpp src/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
+	@mkdir -p $(TEST_REPORTS)
+	@gcov -o $(BUILD_DIR) src/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
+	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
 	@echo "Coverage files generated:"
-	@ls -la *.gcov 2>/dev/null || echo "No .gcov files found"
+	@ls -la $(TEST_REPORTS)/*.gcov 2>/dev/null || echo "No .gcov files found"
 	@echo "Coverage summary:"
 	@if command -v lcov >/dev/null 2>&1; then \
-		lcov --capture --directory . --output-file coverage/coverage.info 2>/dev/null && \
-		lcov --summary coverage/coverage.info 2>/dev/null; \
+		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info 2>/dev/null && \
+		lcov --summary $(TEST_REPORTS)/coverage.info 2>/dev/null; \
 	else \
 		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
 	fi
@@ -171,8 +195,8 @@ test-coverage: clean
 # Clean coverage files
 clean-coverage:
 	@echo "Cleaning coverage files..."
-	@rm -f *.gcov *.gcda *.gcno
-	@rm -rf coverage/
+	@rm -f $(BUILD_DIR)/*.gcda $(BUILD_DIR)/*.gcno
+	@rm -rf $(TEST_REPORTS)/*.gcov $(TEST_REPORTS)/coverage.info
 
 # Install the compiler (requires sudo)
 install: $(TARGET)
