@@ -19,11 +19,11 @@ SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/me
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Unit test files
-UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/basic_test.cpp
-UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/basic_test.o
+UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp
+UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o
 
 # Library objects (without main.o for unit tests)
-LIB_OBJECTS = $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
+LIB_OBJECTS = $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o
 
 # Generated files
 GENERATED = $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.output
@@ -98,7 +98,10 @@ $(BUILD_DIR)/generated/lex.yy.c: src/lexer.l $(BUILD_DIR)/generated/grammar.tab.
 	flex -o $@ src/lexer.l
 
 # Unit test object files
-$(UNIT_TEST_BUILD)/basic_test.o: $(UNIT_TEST_DIR)/basic_test.cpp src/ast.h src/error_handling.h src/memory_management.h src/codegen.h | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp src/ast.h src/error_handling.h src/memory_management.h src/codegen.h src/constants.h | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
+$(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp src/main.cpp | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Clean generated and object files
