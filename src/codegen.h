@@ -1,6 +1,8 @@
 #ifndef CODEGEN_H
 #define CODEGEN_H
 
+extern "C" {
+
 #include "ast.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,19 +46,19 @@ struct CodeGenContext {
     int next_reg_id;
     int next_bb_id;
     int current_function_id;
-    
+
     /* Symbol tables */
     Symbol* global_symbols;
     Symbol* local_symbols;
-    
+
     /* Control flow */
     BasicBlock* current_bb;
     BasicBlock* bb_list;
-    
+
     /* Function information */
     char* current_function_name;
     TypeInfo* current_function_return_type;
-    
+
     /* Temporary storage */
     char temp_buffer[1024];
     int indent_level;
@@ -100,7 +102,8 @@ int get_type_size(TypeInfo* type);
 int types_compatible(TypeInfo* type1, TypeInfo* type2);
 
 /* Utility functions */
-LLVMValue* create_llvm_value(LLVMValueType type, const char* name, TypeInfo* llvm_type);
+LLVMValue* create_llvm_value(LLVMValueType type, const char* name,
+                             TypeInfo* llvm_type);
 void free_llvm_value(LLVMValue* value);
 
 char* get_next_register(CodeGenContext* ctx);
@@ -127,5 +130,5 @@ void generate_main_function_wrapper(CodeGenContext* ctx);
 /* Debugging and error reporting */
 void codegen_error(CodeGenContext* ctx, const char* message, ...);
 void codegen_warning(CodeGenContext* ctx, const char* message, ...);
-
+}
 #endif /* CODEGEN_H */
