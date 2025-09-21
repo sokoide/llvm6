@@ -168,13 +168,13 @@ TEST(binary_op_node_creation) {
     ASTNode* left = create_constant_node(5, TYPE_INT);
     ASTNode* right = create_constant_node(3, TYPE_INT);
     ASTNode* node = create_binary_op_node(OP_ADD, left, right);
-    
+
     ASSERT_NOT_NULL(node);
     ASSERT_EQ(node->type, AST_BINARY_OP);
     ASSERT_EQ(node->data.binary_op.op, OP_ADD);
     ASSERT_EQ(node->data.binary_op.left, left);
     ASSERT_EQ(node->data.binary_op.right, right);
-    
+
     free_ast_node(node);
 }
 
@@ -204,14 +204,14 @@ TEST(symbol_creation) {
     TypeInfo* type = create_type_info(TYPE_INT);
     char name[] = "test_var";
     Symbol* symbol = create_symbol(name, type);
-    
+
     ASSERT_NOT_NULL(symbol);
     ASSERT_NOT_NULL(symbol->name);
     ASSERT_STREQ(symbol->name, name);
     ASSERT_EQ(symbol->type, type);
     ASSERT_EQ(symbol->is_global, false);
     ASSERT_EQ(symbol->is_parameter, false);
-    
+
     free_symbol(symbol);
 }
 
@@ -404,7 +404,7 @@ TEST(cleanup_resources_handles_state) {
 // Error Handling Tests
 TEST(error_creation) {
     ErrorContext* error = create_error(ERROR_PARSE, "test.c", 42, "test_function", "Test error message");
-    
+
     ASSERT_NOT_NULL(error);
     ASSERT_EQ(error->type, ERROR_PARSE);
     ASSERT_STREQ(error->file, "test.c");
@@ -468,15 +468,15 @@ TEST(codegen_context_creation) {
 TEST(register_generation) {
     FILE* output = tmpfile();
     CodeGenContext* ctx = create_codegen_context(output);
-    
+
     char* reg1 = get_next_register(ctx);
     char* reg2 = get_next_register(ctx);
-    
+
     ASSERT_NOT_NULL(reg1);
     ASSERT_NOT_NULL(reg2);
     ASSERT_STREQ(reg1, "1");
     ASSERT_STREQ(reg2, "2");
-    
+
     free(reg1);
     free(reg2);
     free_codegen_context(ctx);
@@ -486,15 +486,15 @@ TEST(register_generation) {
 TEST(llvm_type_to_string_conversion) {
     TypeInfo* int_type = create_type_info(TYPE_INT);
     TypeInfo* float_type = create_type_info(TYPE_FLOAT);
-    
+
     char* int_str = llvm_type_to_string(int_type);
     char* float_str = llvm_type_to_string(float_type);
     char* null_str = llvm_type_to_string(nullptr);
-    
+
     ASSERT_STREQ(int_str, "i32");
     ASSERT_STREQ(float_str, "float");
     ASSERT_STREQ(null_str, "void");
-    
+
     free(int_str);
     free(float_str);
     free(null_str);
@@ -503,8 +503,8 @@ TEST(llvm_type_to_string_conversion) {
 }
 
 TEST(memory_calloc_and_strdup) {
-    CLEANUP_MEMORY_MANAGEMENT();
-    INIT_MEMORY_MANAGEMENT();
+    cleanup_memory_management();
+    init_memory_management();
     MemoryContext* ctx = g_memory_context;
     ASSERT_NOT_NULL(ctx);
 
@@ -522,12 +522,12 @@ TEST(memory_calloc_and_strdup) {
     safe_free_debug(buffer, "unit", 100, __func__);
     safe_free_debug(duplicated, "unit", 101, __func__);
 
-    CLEANUP_MEMORY_MANAGEMENT();
+    cleanup_memory_management();
 }
 
 TEST(memory_debug_tracking) {
-    CLEANUP_MEMORY_MANAGEMENT();
-    INIT_MEMORY_MANAGEMENT();
+    cleanup_memory_management();
+    init_memory_management();
     MemoryContext* ctx = g_memory_context;
     ASSERT_NOT_NULL(ctx);
 
@@ -548,7 +548,28 @@ TEST(memory_debug_tracking) {
     ASSERT_EQ(leaks_remaining, false);
 
     disable_memory_debugging(ctx);
-    CLEANUP_MEMORY_MANAGEMENT();
+    cleanup_memory_management();
+}
+
+TEST(memory_management_init_cleanup_functions) {
+    /* Test that we can call init multiple times safely */
+    cleanup_memory_management();
+    init_memory_management();
+    MemoryContext* ctx1 = g_memory_context;
+    ASSERT_NOT_NULL(ctx1);
+
+    init_memory_management();  /* Second call should be safe */
+    MemoryContext* ctx2 = g_memory_context;
+    ASSERT_NOT_NULL(ctx2);
+    ASSERT_EQ(ctx1, ctx2);  /* Should return the same context */
+
+    /* Test cleanup */
+    cleanup_memory_management();
+    ASSERT_NULL(g_memory_context);
+
+    /* Test cleanup on already cleaned up context */
+    cleanup_memory_management();  /* Should be safe to call again */
+    ASSERT_NULL(g_memory_context);
 }
 
 TEST(codegen_return_variants) {
@@ -581,15 +602,15 @@ TEST(print_usage_function) {
     FILE* original_stdout = stdout;
     FILE* temp = tmpfile();
     stdout = temp;
-    
+
     print_usage("test_compiler");
-    
+
     stdout = original_stdout;
-    
+
     fseek(temp, 0, SEEK_END);
     long size = ftell(temp);
     fclose(temp);
-    
+
     if (size <= 0) {
         throw std::runtime_error("print_usage produced no output");
     }
@@ -597,13 +618,13 @@ TEST(print_usage_function) {
 
 TEST(parse_arguments_debug_option) {
     char* argv[] = {(char*)"test", (char*)"-d"};
-    
+
     memset(&options, 0, sizeof(options));
     optind = 1;
-    
+
     int result = parse_arguments(2, argv);
     (void)result;
-    
+
     if (options.debug_mode != 1) {
         throw std::runtime_error("Debug option not set correctly");
     }
@@ -611,13 +632,13 @@ TEST(parse_arguments_debug_option) {
 
 TEST(parse_arguments_verbose_option) {
     char* argv[] = {(char*)"test", (char*)"-v"};
-    
+
     memset(&options, 0, sizeof(options));
     optind = 1;
-    
+
     int result = parse_arguments(2, argv);
     (void)result;
-    
+
     if (options.verbose != 1) {
         throw std::runtime_error("Verbose option not set correctly");
     }
@@ -625,13 +646,13 @@ TEST(parse_arguments_verbose_option) {
 
 TEST(parse_arguments_dump_ast_option) {
     char* argv[] = {(char*)"test", (char*)"-a"};
-    
+
     memset(&options, 0, sizeof(options));
     optind = 1;
-    
+
     int result = parse_arguments(2, argv);
     (void)result;
-    
+
     if (options.dump_ast != 1) {
         throw std::runtime_error("Dump AST option not set correctly");
     }
@@ -641,19 +662,19 @@ TEST(debug_and_verbose_print_functions) {
     // Test debug print when debug mode is off
     options.debug_mode = 0;
     debug_print("test debug message");
-    
-    // Test debug print when debug mode is on  
+
+    // Test debug print when debug mode is on
     options.debug_mode = 1;
     debug_print("test debug message with debug on");
-    
+
     // Test verbose print when verbose mode is off
     options.verbose = 0;
     verbose_print("test verbose message");
-    
+
     // Test verbose print when verbose mode is on
     options.verbose = 1;
     verbose_print("test verbose message with verbose on");
-    
+
     // Reset for safety
     options.debug_mode = 0;
     options.verbose = 0;
@@ -663,15 +684,15 @@ TEST(compiler_info_function) {
     FILE* original_stdout = stdout;
     FILE* temp = tmpfile();
     stdout = temp;
-    
+
     compiler_info();
-    
+
     stdout = original_stdout;
-    
+
     fseek(temp, 0, SEEK_END);
     long size = ftell(temp);
     fclose(temp);
-    
+
     if (size <= 0) {
         throw std::runtime_error("compiler_info produced no output");
     }
@@ -680,26 +701,26 @@ TEST(compiler_info_function) {
 TEST(create_array_type) {
     TypeInfo* base = create_type_info(TYPE_INT);
     TypeInfo* array = create_array_type(base, 10);
-    
-    if (!array || array->base_type != TYPE_ARRAY || 
+
+    if (!array || array->base_type != TYPE_ARRAY ||
         array->array_size != 10 || array->return_type != base) {
         throw std::runtime_error("Array type creation failed");
     }
-    
+
     free_type_info(array);
 }
 
 TEST(duplicate_type_info_with_return_type) {
     TypeInfo* original = create_type_info(TYPE_POINTER);
     original->return_type = create_type_info(TYPE_INT);
-    
+
     TypeInfo* copy = duplicate_type_info(original);
-    
-    if (!copy || copy->base_type != TYPE_POINTER || 
+
+    if (!copy || copy->base_type != TYPE_POINTER ||
         !copy->return_type || copy->return_type->base_type != TYPE_INT) {
         throw std::runtime_error("Type duplication with return type failed");
     }
-    
+
     free_type_info(copy);
     free_type_info(original);
 }
@@ -710,21 +731,21 @@ TEST(ast_conditional_statements) {
     if_stmt->data.if_stmt.condition = create_constant_node(1, TYPE_INT);
     if_stmt->data.if_stmt.then_stmt = create_ast_node(AST_COMPOUND_STMT);
     if_stmt->data.if_stmt.else_stmt = create_ast_node(AST_COMPOUND_STMT);
-    
+
     ASTNode* while_stmt = create_ast_node(AST_WHILE_STMT);
     while_stmt->data.while_stmt.condition = create_constant_node(1, TYPE_INT);
     while_stmt->data.while_stmt.body = create_ast_node(AST_COMPOUND_STMT);
-    
+
     ASTNode* for_stmt = create_ast_node(AST_FOR_STMT);
     for_stmt->data.for_stmt.init = create_ast_node(AST_VARIABLE_DECL);
     for_stmt->data.for_stmt.condition = create_constant_node(1, TYPE_INT);
     for_stmt->data.for_stmt.update = create_ast_node(AST_ASSIGNMENT);
     for_stmt->data.for_stmt.body = create_ast_node(AST_COMPOUND_STMT);
-    
+
     if (!if_stmt || !while_stmt || !for_stmt) {
         throw std::runtime_error("Conditional statement creation failed");
     }
-    
+
     free_ast_node(if_stmt);
     free_ast_node(while_stmt);
     free_ast_node(for_stmt);
@@ -736,14 +757,14 @@ TEST(ast_additional_node_types) {
     ASTNode* member_access = create_ast_node(AST_MEMBER_ACCESS);
     ASTNode* cast_expr = create_ast_node(AST_CAST);
     ASTNode* switch_stmt = create_ast_node(AST_SWITCH_STMT);
-    
+
     if (!array_access || array_access->type != AST_ARRAY_ACCESS ||
         !member_access || member_access->type != AST_MEMBER_ACCESS ||
         !cast_expr || cast_expr->type != AST_CAST ||
         !switch_stmt || switch_stmt->type != AST_SWITCH_STMT) {
         throw std::runtime_error("AST node type creation failed");
     }
-    
+
     free_ast_node(array_access);
     free_ast_node(member_access);
     free_ast_node(cast_expr);
@@ -866,7 +887,7 @@ TEST(codegen_generate_full_program) {
 int main() {
     std::cout << "Running Unit Tests...\n";
     std::cout << "=====================\n\n";
-    
+
     // AST Tests
     run_test_ast_node_creation();
     run_test_identifier_node_creation();
@@ -885,16 +906,17 @@ int main() {
     run_test_run_ccompiler_on_fixture();
     run_test_main_print_helpers();
     run_test_cleanup_resources_handles_state();
-    
+
     // Error Handling Tests
     run_test_error_creation();
     run_test_error_type_to_string_covers_all();
-    
+
     // Memory Management Tests
     run_test_memory_context_creation();
     run_test_safe_malloc_debug();
     run_test_memory_calloc_and_strdup();
     run_test_memory_debug_tracking();
+    run_test_memory_management_init_cleanup_functions();
 
     // CodeGen Tests
     run_test_codegen_context_creation();
@@ -902,7 +924,7 @@ int main() {
     run_test_llvm_type_to_string_conversion();
     run_test_codegen_return_variants();
     run_test_codegen_generate_full_program();
-    
+
     // Additional coverage tests
     run_test_print_usage_function();
     run_test_parse_arguments_debug_option();
@@ -914,9 +936,9 @@ int main() {
     run_test_duplicate_type_info_with_return_type();
     run_test_ast_conditional_statements();
     run_test_ast_additional_node_types();
-    
+
     std::cout << "\n=====================\n";
     std::cout << "Test Results: " << tests_passed << " passed, " << tests_failed << " failed\n";
-    
+
     return tests_failed;
 }

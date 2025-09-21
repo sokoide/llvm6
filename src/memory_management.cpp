@@ -58,7 +58,7 @@ void disable_memory_debugging(MemoryContext* ctx) {
 /* Safe malloc with debugging */
 void* safe_malloc_debug(size_t size, const char* file, int line, const char* function) {
     if (!g_memory_context) {
-        INIT_MEMORY_MANAGEMENT();
+        init_memory_management();
     }
 
     void* ptr = malloc(size);

@@ -68,7 +68,22 @@ int check_memory_leaks(const MemoryContext* ctx);
 #define SAFE_STRDUP(str) safe_strdup_debug(str, __FILE__, __LINE__, __func__)
 #define SAFE_FREE(ptr) safe_free_debug(ptr, __FILE__, __LINE__, __func__)
 
-/* Initialize/cleanup macros */
+/* Initialize/cleanup functions (inline for better type safety) */
+static inline void init_memory_management(void) {
+    if (!g_memory_context) {
+        g_memory_context = create_memory_context();
+    }
+}
+
+static inline void cleanup_memory_management(void) {
+    if (g_memory_context) {
+        print_memory_leaks(g_memory_context);
+        free_memory_context(g_memory_context);
+        g_memory_context = NULL;
+    }
+}
+
+/* Initialize/cleanup macros - deprecated, use functions instead */
 #define INIT_MEMORY_MANAGEMENT()                                               \
     do {                                                                       \
         if (!g_memory_context) {                                               \

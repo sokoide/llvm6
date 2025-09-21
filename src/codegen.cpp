@@ -66,19 +66,26 @@ void free_codegen_context(CodeGenContext* ctx) {
     free(ctx);
 }
 
+/* Forward declarations */
+void generate_module_header(CodeGenContext* ctx);
+void process_ast_nodes(CodeGenContext* ctx, ASTNode* ast);
+
 /* Main code generation function */
 void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
     if (!ctx || !ast)
         return;
 
-    /* Generate module header */
+    generate_module_header(ctx);
+    generate_runtime_declarations(ctx);
+    process_ast_nodes(ctx, ast);
+}
+
+void generate_module_header(CodeGenContext* ctx) {
     fprintf(ctx->output, "; Generated LLVM IR\n");
     fprintf(ctx->output, "target triple = \"x86_64-unknown-linux-gnu\"\n\n");
+}
 
-    /* Generate runtime declarations */
-    generate_runtime_declarations(ctx);
-
-    /* Process translation unit */
+void process_ast_nodes(CodeGenContext* ctx, ASTNode* ast) {
     ASTNode* current = ast;
     while (current) {
         switch (current->type) {
@@ -94,8 +101,6 @@ void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
         }
         current = current->next;
     }
-
-    fprintf(ctx->output, "\n");
 }
 
 /* Expression generation */
@@ -240,7 +245,7 @@ static bool is_assignment_operator(BinaryOp op) {
 
 /* Check if operator is a comparison operator */
 static bool is_comparison_operator(BinaryOp op) {
-    return (op == OP_LT || op == OP_GT || op == OP_LE || 
+    return (op == OP_LT || op == OP_GT || op == OP_LE ||
             op == OP_GE || op == OP_EQ || op == OP_NE);
 }
 
@@ -281,28 +286,28 @@ static LLVMValue* generate_comparison_op(CodeGenContext* ctx, const char* op_nam
                                        LLVMValue* left, LLVMValue* right) {
     char left_operand[MAX_OPERAND_STRING_LENGTH];
     char right_operand[MAX_OPERAND_STRING_LENGTH];
-    
+
     format_operand(left, left_operand, sizeof(left_operand));
     format_operand(right, right_operand, sizeof(right_operand));
-    
+
     /* Generate comparison and result registers */
     char* cmp_reg = get_next_register(ctx);
     char* result_reg = get_next_register(ctx);
-    
+
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                          create_type_info(TYPE_INT));
-    
+
     /* Emit comparison instruction */
     emit_instruction(ctx, "%%%s = %s i32 %s, %s", cmp_reg, op_name,
                      left_operand, right_operand);
-    
+
     /* Convert i1 result to i32 */
     emit_instruction(ctx, "%%%s = zext i1 %%%s to i32", result_reg, cmp_reg);
-    
+
     /* Cleanup */
     free(cmp_reg);
     free(result_reg);
-    
+
     return result;
 }
 
@@ -311,21 +316,21 @@ static LLVMValue* generate_arithmetic_op(CodeGenContext* ctx, const char* op_nam
                                        LLVMValue* left, LLVMValue* right) {
     char left_operand[MAX_OPERAND_STRING_LENGTH];
     char right_operand[MAX_OPERAND_STRING_LENGTH];
-    
+
     format_operand(left, left_operand, sizeof(left_operand));
     format_operand(right, right_operand, sizeof(right_operand));
-    
+
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                          create_type_info(TYPE_INT));
-    
+
     /* Emit arithmetic instruction */
     emit_instruction(ctx, "%%%s = %s i32 %s, %s", result_reg, op_name,
                      left_operand, right_operand);
-    
+
     /* Cleanup */
     free(result_reg);
-    
+
     return result;
 }
 
@@ -526,7 +531,7 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
 static LLVMValue* generate_arithmetic_unary_op(CodeGenContext* ctx, LLVMValue* operand,
                                                LLVMValue* result, UnaryOp op) {
     const char* operand_str = operand->name;
-    
+
     switch (op) {
     case UOP_PLUS:
         /* Unary plus is a no-op */
@@ -563,17 +568,17 @@ static LLVMValue* generate_arithmetic_unary_op(CodeGenContext* ctx, LLVMValue* o
     return result;
 }
 
-static LLVMValue* generate_increment_decrement_op(CodeGenContext* ctx, LLVMValue* operand, 
+static LLVMValue* generate_increment_decrement_op(CodeGenContext* ctx, LLVMValue* operand,
                                                   LLVMValue* result, UnaryOp op) {
     if (operand->type == LLVM_VALUE_CONSTANT) {
         codegen_error(ctx, "Cannot increment/decrement constant");
         return NULL;
     }
-    
+
     char* load_reg = get_next_register(ctx);
     char* mod_reg = get_next_register(ctx);
     const char* operation = (op == UOP_PREINC || op == UOP_POSTINC) ? "add" : "sub";
-    
+
     switch (op) {
     case UOP_PREINC:
     case UOP_PREDEC:
@@ -595,7 +600,7 @@ static LLVMValue* generate_increment_decrement_op(CodeGenContext* ctx, LLVMValue
         free(mod_reg);
         return NULL;
     }
-    
+
     free(load_reg);
     free(mod_reg);
     return result;
@@ -906,7 +911,7 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
 
     /* Delegate to appropriate helper function */
     LLVMValue* operation_result = NULL;
-    
+
     switch (op) {
     case UOP_PLUS:
     case UOP_MINUS:
@@ -958,7 +963,7 @@ LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
     if (symbol->is_parameter) {
         LLVMValue* result =
             create_llvm_value(LLVM_VALUE_REGISTER,
-                              identifier->data.identifier.name, 
+                              identifier->data.identifier.name,
                               duplicate_type_info(symbol->type));
         return result;
     }
@@ -1080,7 +1085,7 @@ void generate_return_statement(CodeGenContext* ctx, ASTNode* stmt) {
 void generate_expression_statement(CodeGenContext* ctx, ASTNode* stmt) {
     /* Handle properly structured expression statements from grammar */
     if (!stmt) return;
-    
+
     /* The expression is stored in the same field as return statements */
     if (stmt->data.return_stmt.expression) {
         /* Generate the expression but discard the result */
@@ -1160,7 +1165,7 @@ void add_global_symbol(CodeGenContext* ctx, Symbol* symbol) {
 
 void add_local_symbol(CodeGenContext* ctx, Symbol* symbol) {
     if (!ctx || !symbol) return;
-    
+
     /* Check for duplicate symbols to prevent corruption */
     Symbol* existing = ctx->local_symbols;
     while (existing) {
@@ -1170,7 +1175,7 @@ void add_local_symbol(CodeGenContext* ctx, Symbol* symbol) {
         }
         existing = existing->next;
     }
-    
+
     symbol->next = ctx->local_symbols;
     ctx->local_symbols = symbol;
 }
@@ -1199,7 +1204,7 @@ Symbol* lookup_symbol(CodeGenContext* ctx, const char* name) {
 
 void clear_local_symbols(CodeGenContext* ctx) {
     if (!ctx) return;
-    
+
     Symbol* current = ctx->local_symbols;
     while (current) {
         Symbol* next = current->next;
@@ -1676,7 +1681,7 @@ LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access) {
 
     /* Determine the struct type */
     TypeInfo* struct_type = object_value->llvm_type;
-    
+
     /* If this is pointer access (->), dereference the pointer */
     if (is_pointer_access) {
         if (!struct_type || struct_type->base_type != TYPE_POINTER) {
@@ -1698,7 +1703,7 @@ LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access) {
     /* For now, assume all struct members are integers at offset 0 */
     /* This is a basic implementation - real implementation would need */
     /* struct layout and member offset calculation */
-    
+
     char* result_reg = get_next_register(ctx);
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
