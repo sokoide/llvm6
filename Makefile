@@ -283,7 +283,7 @@ test-coverage-combined: clean
 	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
 	@echo "Combined coverage analysis complete."
 	@if command -v lcov >/dev/null 2>&1; then \
-		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info 2>/dev/null && \
+		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info --ignore-errors mismatch 2>/dev/null && \
 		lcov --summary $(TEST_REPORTS)/coverage.info 2>/dev/null; \
 	else \
 		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
