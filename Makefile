@@ -4,7 +4,7 @@ CXX = g++
 CC = gcc
 CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Isrc
 CFLAGS = -Wall -Wextra -O2
-LIBS = -ly
+LIBS =
 
 # Directory structure
 BUILD_DIR = build
