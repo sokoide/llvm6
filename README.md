@@ -4,14 +4,14 @@ A complete C compiler implementation that generates LLVM Intermediate Representa
 
 ## Features
 
-- **Full C89/C90 Language Support**: Complete grammar implementation with all standard C constructs
-- **LLVM IR Generation**: Produces valid LLVM IR that can be compiled with LLVM tools
-- **Robust Error Handling**: Comprehensive error reporting with source location tracking
-- **Memory Management**: Advanced memory tracking and leak detection for development
-- **Comprehensive Testing**: 100% test pass rate with 38 unit tests + integration suite
-- **Excellent Coverage**: 71.2% line coverage, 77.6% function coverage
-- **Enhanced Pointer Support**: Multi-level pointers, pointer arithmetic, address/dereference operations
-- **Struct Foundation**: Basic struct member access with dot and arrow operators
+-   **Full C89/C90 Language Support**: Complete grammar implementation with all standard C constructs
+-   **LLVM IR Generation**: Produces valid LLVM IR that can be compiled with LLVM tools
+-   **Robust Error Handling**: Comprehensive error reporting with source location tracking
+-   **Memory Management**: Advanced memory tracking and leak detection for development
+-   **Comprehensive Testing**: 100% test pass rate with 38 unit tests + integration suite
+-   **Excellent Coverage**: 71.2% line coverage, 77.6% function coverage
+-   **Enhanced Pointer Support**: Multi-level pointers, pointer arithmetic, address/dereference operations
+-   **Struct Foundation**: Basic struct member access with dot and arrow operators
 
 ## Quick Start
 
@@ -66,12 +66,12 @@ make test
 
 ### Core Components
 
-- **Lexer** (`src/lexer.l`) - Tokenizes C source code using Flex
-- **Parser** (`src/grammar.y`) - Builds AST from tokens using Bison
-- **AST System** (`src/ast.h/cpp`) - 47 node types covering full C language
-- **Code Generator** (`src/codegen.h/cpp`) - Traverses AST and emits LLVM IR
-- **Error Handling** (`src/error_handling.h/cpp`) - Standardized error reporting
-- **Memory Management** (`src/memory_management.h/cpp`) - Advanced memory tracking
+-   **Lexer** (`src/lexer.l`) - Tokenizes C source code using Flex
+-   **Parser** (`src/grammar.y`) - Builds AST from tokens using Bison
+-   **AST System** (`src/ast.h/cpp`) - 47 node types covering full C language
+-   **Code Generator** (`src/codegen.h/cpp`) - Traverses AST and emits LLVM IR
+-   **Error Handling** (`src/error_handling.h/cpp`) - Standardized error reporting
+-   **Memory Management** (`src/memory_management.h/cpp`) - Advanced memory tracking
 
 ### Data Flow
 
@@ -113,12 +113,12 @@ make validate
 
 The codebase follows modern C++ practices with:
 
-- **Magic Number Constants**: Centralized configuration
-- **Function Decomposition**: Focused, single-responsibility functions
-- **Error Handling**: Consistent error patterns across components
-- **Memory Safety**: Comprehensive leak detection and tracking
-- **Test Coverage**: 71.2% line coverage with 100% test pass rate (38 unit tests)
-- **Comprehensive Testing**: Pointer and struct feature validation with TDD approach
+-   **Magic Number Constants**: Centralized configuration
+-   **Function Decomposition**: Focused, single-responsibility functions
+-   **Error Handling**: Consistent error patterns across components
+-   **Memory Safety**: Comprehensive leak detection and tracking
+-   **Test Coverage**: 71.2% line coverage with 100% test pass rate (38 unit tests)
+-   **Comprehensive Testing**: Pointer and struct feature validation with TDD approach
 
 ## Examples
 
@@ -165,28 +165,29 @@ int main() {
 
 ## Supported C Features
 
-- ✅ **Basic Types**: `int`, `char`, `float`, `double`
-- ✅ **Control Flow**: `if/else`, `while`, `for`, `do-while`
-- ✅ **Functions**: Declaration, definition, recursion
-- ✅ **Operators**: Arithmetic, logical, comparison, assignment
-- ✅ **Variables**: Local, global, function parameters
-- ✅ **Arrays**: Basic array operations
-- ✅ **Expressions**: Complex nested expressions with proper precedence
-- ✅ **Pointers**: Multi-level pointers, arithmetic, address/dereference operations
-- ✅ **Structs**: Basic member access (dot and arrow operators)
+-   ✅ **Basic Types**: `int`, `char`, `float`, `double`
+-   ✅ **Control Flow**: `if/else`, `while`, `for`, `do-while`
+-   ✅ **Functions**: Declaration, definition, recursion
+-   ✅ **Operators**: Arithmetic, logical, comparison, assignment
+-   ✅ **Variables**: Local, global, function parameters
+-   ✅ **Arrays**: Basic array operations
+-   ✅ **Expressions**: Complex nested expressions with proper precedence
+-   ✅ **Pointers**: Multi-level pointers, arithmetic, address/dereference operations
+-   ✅ **Structs**: Basic member access (dot and arrow operators)
 
 ### Recent Enhancements
 
-- **Pointer Support**: Complete implementation of pointer operations
-  - Multi-level pointers (`int**`, `int***`)
-  - Pointer arithmetic (`ptr + 1`, `ptr - ptr`)
-  - Address-of (`&variable`) and dereference (`*pointer`) operators
-  - Proper type checking and LLVM IR generation
+-   **Pointer Support**: Complete implementation of pointer operations
 
-- **Struct Foundation**: Basic struct functionality
-  - Struct member access with dot operator (`obj.member`)
-  - Pointer-to-struct access with arrow operator (`ptr->member`)
-  - Type-safe member access code generation
+    -   Multi-level pointers (`int**`, `int***`)
+    -   Pointer arithmetic (`ptr + 1`, `ptr - ptr`)
+    -   Address-of (`&variable`) and dereference (`*pointer`) operators
+    -   Proper type checking and LLVM IR generation
+
+-   **Struct Foundation**: Basic struct functionality
+    -   Struct member access with dot operator (`obj.member`)
+    -   Pointer-to-struct access with arrow operator (`ptr->member`)
+    -   Type-safe member access code generation
 
 ## Integration with LLVM
 
@@ -229,18 +230,18 @@ gdb ./ccompiler
 
 ### Development Guidelines
 
-- Follow existing code style (tabs, C-style comments)
-- Add tests for new features
-- Update documentation for API changes
-- Ensure all tests pass before submitting
+-   Follow existing code style (tabs, C-style comments)
+-   Add tests for new features
+-   Update documentation for API changes
+-   Ensure all tests pass before submitting
 
 ## Performance
 
-- **Compilation Speed**: Fast compilation for small to medium C programs
-- **Memory Usage**: Efficient memory management with leak detection
-- **Output Quality**: Generates optimizable LLVM IR with enhanced pointer/struct support
-- **Test Coverage**: 71.2% line coverage, 77.6% function coverage
-- **Quality Metrics**: 100% test pass rate across 38 unit tests + integration suite
+-   **Compilation Speed**: Fast compilation for small to medium C programs
+-   **Memory Usage**: Efficient memory management with leak detection
+-   **Output Quality**: Generates optimizable LLVM IR with enhanced pointer/struct support
+-   **Test Coverage**: 71.2% line coverage, 77.6% function coverage
+-   **Quality Metrics**: 100% test pass rate across 38 unit tests + integration suite
 
 ## License
 
@@ -248,14 +249,14 @@ This project is open source. See LICENSE file for details.
 
 ## Acknowledgments
 
-- Built using Flex and Bison for lexing and parsing
-- LLVM project for IR specification and tools
-- Classic compiler design principles from "Compilers: Principles, Techniques, and Tools"
+-   Built using Flex and Bison for lexing and parsing
+-   LLVM project for IR specification and tools
+-   Classic compiler design principles from "Compilers: Principles, Techniques, and Tools"
 
 ## Status
 
-**Current**: Production-ready for educational and development use
-**Test Coverage**: 71.2% line coverage, 100% test pass rate (38 unit tests)
-**Features**: Enhanced with multi-level pointer support and struct member access
-**Quality**: Comprehensive memory management and extensive test validation
-**Maintenance**: Actively maintained and improved
+-   **Current**: Production-ready for educational and development use
+-   **Test Coverage**: 71.2% line coverage, 100% test pass rate (38 unit tests)
+-   **Features**: Enhanced with multi-level pointer support and struct member access
+-   **Quality**: Comprehensive memory management and extensive test validation
+-   **Maintenance**: Actively maintained and improved
