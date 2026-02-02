@@ -4,6 +4,7 @@
 extern "C" {
 
 #include "ast.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,7 +84,8 @@ LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr);
 LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call);
 LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access);
 LLVMValue* generate_member_access(CodeGenContext* ctx, ASTNode* access);
-LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op, LLVMValue* left, LLVMValue* right);
+LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op,
+                                          LLVMValue* left, LLVMValue* right);
 LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier);
 LLVMValue* generate_constant(CodeGenContext* ctx, ASTNode* constant);
 LLVMValue* generate_string_literal(CodeGenContext* ctx, ASTNode* string_lit);
@@ -98,7 +100,7 @@ void generate_expression_statement(CodeGenContext* ctx, ASTNode* stmt);
 
 /* Type conversion */
 char* llvm_type_to_string(TypeInfo* type);
-char* get_default_value(TypeInfo* type);
+char* get_default_value(const TypeInfo* type);
 int get_type_size(TypeInfo* type);
 int types_compatible(TypeInfo* type1, TypeInfo* type2);
 

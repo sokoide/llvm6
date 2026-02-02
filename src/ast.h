@@ -278,7 +278,7 @@ struct ASTNode {
 
         struct {
             char* name;
-            ASTNode* members;    /* list of member declarations */
+            ASTNode* members;     /* list of member declarations */
             Symbol* symbol_table; /* struct's symbol table */
         } struct_decl;
 
@@ -300,9 +300,9 @@ struct ASTNode {
 
 /* Function prototypes */
 ASTNode* create_ast_node(ASTNodeType type);
-ASTNode* create_identifier_node(char* name);
+ASTNode* create_identifier_node(const char* name);
 ASTNode* create_constant_node(int value, DataType type);
-ASTNode* create_string_literal_node(char* string);
+ASTNode* create_string_literal_node(const char* string);
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right);
 ASTNode* create_unary_op_node(UnaryOp op, ASTNode* operand);
 ASTNode* create_function_call_node(ASTNode* function, ASTNode* arguments);
@@ -313,9 +313,9 @@ ASTNode* create_while_stmt_node(ASTNode* condition, ASTNode* body);
 ASTNode* create_for_stmt_node(ASTNode* init, ASTNode* condition,
                               ASTNode* update, ASTNode* body);
 ASTNode* create_return_stmt_node(ASTNode* expression);
-ASTNode* create_variable_decl_node(TypeInfo* type, char* name,
+ASTNode* create_variable_decl_node(TypeInfo* type, const char* name,
                                    ASTNode* initializer);
-ASTNode* create_function_def_node(TypeInfo* return_type, char* name,
+ASTNode* create_function_def_node(TypeInfo* return_type, const char* name,
                                   ASTNode* parameters, ASTNode* body);
 
 TypeInfo* create_type_info(DataType base_type);
@@ -329,10 +329,10 @@ void free_ast_node(ASTNode* node);
 void free_type_info(TypeInfo* type);
 
 void print_ast(ASTNode* node, int indent);
-void print_type_info(TypeInfo* type);
+void print_type_info(const TypeInfo* type);
 
 /* Symbol table functions */
-Symbol* create_symbol(char* name, TypeInfo* type);
+Symbol* create_symbol(const char* name, TypeInfo* type);
 void free_symbol(Symbol* symbol);
 }
 #endif /* AST_H */

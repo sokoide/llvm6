@@ -1,11 +1,13 @@
 #include "error_handling.h"
+
 #include <stdlib.h>
 #include <string.h>
 
 /* Create an error context with formatted message */
 ErrorContext* create_error(ErrorType type, const char* file, int line,
-                          const char* function, const char* format, ...) {
-    ErrorContext* error = (ErrorContext*)malloc(sizeof(ErrorContext));
+                           const char* function, const char* format, ...) {
+    ErrorContext* error =
+        static_cast<ErrorContext*>(malloc(sizeof(ErrorContext)));
     if (!error) {
         fprintf(stderr, "Fatal: Cannot allocate memory for error context\n");
         exit(ERROR_MEMORY_ALLOCATION);
@@ -17,7 +19,7 @@ ErrorContext* create_error(ErrorType type, const char* file, int line,
     error->function = function;
 
     /* Allocate and format message */
-    char* message = (char*)malloc(MAX_TEMP_BUFFER_SIZE);
+    auto message = static_cast<char*>(malloc(MAX_TEMP_BUFFER_SIZE));
     if (!message) {
         fprintf(stderr, "Fatal: Cannot allocate memory for error message\n");
         free(error);
@@ -43,10 +45,13 @@ void free_error(ErrorContext* error) {
 
 /* Print error to stderr */
 void print_error(const ErrorContext* error) {
-    if (!error) return;
+    if (!error)
+        return;
 
-    fprintf(stderr, "Error [%s]: %s\n", error_type_to_string(error->type), error->message);
-    fprintf(stderr, "  Location: %s:%d in %s()\n", error->file, error->line, error->function);
+    fprintf(stderr, "Error [%s]: %s\n", error_type_to_string(error->type),
+            error->message);
+    fprintf(stderr, "  Location: %s:%d in %s()\n", error->file, error->line,
+            error->function);
 }
 
 /* Convert error type to string */

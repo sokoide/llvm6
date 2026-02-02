@@ -1,18 +1,19 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <getopt.h>
 #include "ast.h"
 #include "codegen.h"
 
+#include <getopt.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* External declarations from lexer and parser */
 extern "C" {
-    extern FILE* yyin;
-    extern int yyparse(void);
-    extern int yylineno;
-    extern char* yytext;
-    extern int yylex(void);
+extern FILE* yyin;
+extern int yyparse(void);
+extern int yylineno;
+extern char* yytext;
+extern int yylex(void);
 }
 extern ASTNode* program_ast;
 
@@ -24,7 +25,7 @@ struct CompilerOptions {
     int verbose;
     int dump_ast;
     int dump_tokens;
-} options = { NULL, NULL, 0, 0, 0, 0 };
+} options = {NULL, NULL, 0, 0, 0, 0};
 
 /* Function prototypes */
 void print_usage(const char* program_name);
@@ -36,7 +37,8 @@ int yyerror(const char* s);
 void print_usage(const char* program_name) {
     printf("Usage: %s [options] [input_file]\n", program_name);
     printf("\nOptions:\n");
-    printf("  -o, --output FILE      Write LLVM IR to FILE (default: stdout)\n");
+    printf(
+        "  -o, --output FILE      Write LLVM IR to FILE (default: stdout)\n");
     printf("  -d, --debug           Enable debug mode\n");
     printf("  -v, --verbose         Enable verbose output\n");
     printf("  -a, --dump-ast        Dump Abstract Syntax Tree\n");
@@ -50,44 +52,44 @@ void print_usage(const char* program_name) {
 
 /* Parse command line arguments */
 int parse_arguments(int argc, char* argv[]) {
-    static struct option long_options[] = {
-        {"output",      required_argument, 0, 'o'},
-        {"debug",       no_argument,       0, 'd'},
-        {"verbose",     no_argument,       0, 'v'},
-        {"dump-ast",    no_argument,       0, 'a'},
-        {"dump-tokens", no_argument,       0, 't'},
-        {"help",        no_argument,       0, 'h'},
-        {0, 0, 0, 0}
-    };
+    static struct option long_options[] = {{"output", required_argument, 0,
+                                            'o'},
+                                           {"debug", no_argument, 0, 'd'},
+                                           {"verbose", no_argument, 0, 'v'},
+                                           {"dump-ast", no_argument, 0, 'a'},
+                                           {"dump-tokens", no_argument, 0, 't'},
+                                           {"help", no_argument, 0, 'h'},
+                                           {0, 0, 0, 0}};
 
     int option_index = 0;
     int c;
 
-    while ((c = getopt_long(argc, argv, "o:dvath", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "o:dvath", long_options,
+                            &option_index)) != -1) {
         switch (c) {
-            case 'o':
-                options.output_file = optarg;
-                break;
-            case 'd':
-                options.debug_mode = 1;
-                break;
-            case 'v':
-                options.verbose = 1;
-                break;
-            case 'a':
-                options.dump_ast = 1;
-                break;
-            case 't':
-                options.dump_tokens = 1;
-                break;
-            case 'h':
-                print_usage(argv[0]);
-                exit(0);
-            case '?':
-                /* getopt_long already printed an error message */
-                return -1;
-            default:
-                abort();
+        case 'o':
+            options.output_file = optarg;
+            break;
+        case 'd':
+            options.debug_mode = 1;
+            break;
+        case 'v':
+            options.verbose = 1;
+            break;
+        case 'a':
+            options.dump_ast = 1;
+            break;
+        case 't':
+            options.dump_tokens = 1;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            exit(0);
+        case '?':
+            /* getopt_long already printed an error message */
+            return -1;
+        default:
+            abort();
         }
     }
 
@@ -133,7 +135,8 @@ int main(int argc, char* argv[]) {
 
         yyin = fopen(options.input_file, "r");
         if (!yyin) {
-            fprintf(stderr, "Error: Cannot open input file '%s'\n", options.input_file);
+            fprintf(stderr, "Error: Cannot open input file '%s'\n",
+                    options.input_file);
             exit_code = 1;
             goto cleanup;
         }
@@ -152,7 +155,8 @@ int main(int argc, char* argv[]) {
 
         output_file = fopen(options.output_file, "w");
         if (!output_file) {
-            fprintf(stderr, "Error: Cannot open output file '%s'\n", options.output_file);
+            fprintf(stderr, "Error: Cannot open output file '%s'\n",
+                    options.output_file);
             exit_code = 1;
             goto cleanup;
         }
@@ -233,14 +237,14 @@ cleanup:
 }
 
 /* Additional helper functions */
-void compiler_info(void) {
+void __attribute__((unused)) compiler_info(void) {
     printf("C to LLVM IR Compiler\n");
     printf("Built with bison and flex\n");
     printf("Supports C language constructs with LLVM IR output\n");
 }
 
 /* Debug print function */
-void debug_print(const char* format, ...) {
+void __attribute__((unused)) debug_print(const char* format, ...) {
     if (options.debug_mode) {
         va_list args;
         va_start(args, format);
@@ -252,7 +256,7 @@ void debug_print(const char* format, ...) {
 }
 
 /* Verbose print function */
-void verbose_print(const char* format, ...) {
+void __attribute__((unused)) verbose_print(const char* format, ...) {
     if (options.verbose) {
         va_list args;
         va_start(args, format);

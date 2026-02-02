@@ -26,6 +26,17 @@ typedef enum {
 
 #include "grammar.tab.hpp"
 
+/* Safe string duplication with error handling */
+static int safe_strdup_to_yylval(const char* str) {
+    char* result = strdup(str);
+    if (!result) {
+        fprintf(stderr, "Error: Memory allocation failed in lexer\n");
+        return(0);  /* Trigger parse error */
+    }
+    yylval.str_val = result;
+    return 1;  /* Success */
+}
+
 void count(void);
 void comment(void);
 int check_type(void);
@@ -78,18 +89,18 @@ IS			(u|U|l|L)*
 "volatile"		{ count(); return(VOLATILE); }
 "while"			{ count(); return(WHILE); }
 
-{L}({L}|{D})*		{ count(); yylval.str_val = strdup(yytext); return(check_type()); }
+{L}({L}|{D})*		{ count(); safe_strdup_to_yylval(yytext); return(check_type()); }
 
-0[xX]{H}+{IS}?		{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
-0{D}+{IS}?		{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
-{D}+{IS}?		{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
-L?'(\\.|[^\\'])+'	{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
+0[xX]{H}+{IS}?		{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
+0{D}+{IS}?		{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
+{D}+{IS}?		{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
+L?'(\\.|[^\\'])+'	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
 
-{D}+{E}{FS}?		{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
-{D}*"."{D}+({E})?{FS}?	{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
-{D}+"."{D}*({E})?{FS}?	{ count(); yylval.str_val = strdup(yytext); return(CONSTANT); }
+{D}+{E}{FS}?		{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
+{D}*"."{D}+({E})?{FS}?	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
+{D}+"."{D}*({E})?{FS}?	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
 
-L?\\"(\\.|[^\\\"])*\\"	{ count(); yylval.str_val = strdup(yytext); return(STRING_LITERAL); }
+L?\\"(\\.|[^\\\"])*\\"	{ count(); safe_strdup_to_yylval(yytext); return(STRING_LITERAL); }
 
 "..."			{ count(); return(ELLIPSIS); }
 ">>="			{ count(); return(RIGHT_ASSIGN); }
@@ -181,6 +192,6 @@ int check_type(void)
 	*
 	* return(IDENTIFIER);
 	*/
-	
+
 	return(IDENTIFIER);
 }

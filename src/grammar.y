@@ -31,6 +31,13 @@ int yyerror(const char* s);
 #endif
 %}
 
+/* Token precedence and associativity */
+/* Resolve dangling-else ambiguity by making ELSE right-associative */
+%right ELSE
+
+/* Expect 1 shift/reduce conflict due to dangling-else ambiguity */
+%expect 1
+
 %union {
     int int_val;
     float float_val;
@@ -53,6 +60,7 @@ int yyerror(const char* s);
 
 %token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
 
+/* Resolve dangling-else ambiguity by making ELSE right-associative */
 %type <ast_node> primary_expression postfix_expression argument_expression_list
 %type <ast_node> unary_expression cast_expression multiplicative_expression
 %type <ast_node> additive_expression shift_expression relational_expression
@@ -98,7 +106,7 @@ postfix_expression
 	: primary_expression
 		{ $$ = $1; }
 	| postfix_expression '[' expression ']'
-		{ 
+		{
 			$$ = create_ast_node(AST_ARRAY_ACCESS);
 			$$->data.array_access.array = $1;
 			$$->data.array_access.index = $3;
@@ -465,8 +473,8 @@ direct_declarator
 	| direct_declarator '[' ']'
 		{ $$ = $1; }
 	| direct_declarator '(' parameter_type_list ')'
-		{ 
-			$$ = $1; 
+		{
+			$$ = $1;
 			$$->data.identifier.parameters = $3;
 		}
 	| direct_declarator '(' identifier_list ')'
@@ -670,12 +678,12 @@ statement_list
 
 expression_statement
 	: ';'
-		{ 
+		{
 			$$ = create_ast_node(AST_EXPRESSION_STMT);
 			$$->data.return_stmt.expression = NULL; /* Reuse return_stmt structure for expression */
 		}
 	| expression ';'
-		{ 
+		{
 			$$ = create_ast_node(AST_EXPRESSION_STMT);
 			$$->data.return_stmt.expression = $1; /* Store the expression */
 		}
@@ -726,7 +734,7 @@ jump_statement
 
 translation_unit
 	: external_declaration
-		{ 
+		{
 			program_ast = $1;
 			$$ = program_ast;
 		}
@@ -751,10 +759,10 @@ function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
 		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, $3, $4); }
 	| declaration_specifiers declarator compound_statement
-		{ 
+		{
 			/* Check if declarator has parameters (modern C syntax) */
 			ASTNode* params = ($2->data.identifier.parameters) ? $2->data.identifier.parameters : NULL;
-			$$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, params, $3); 
+			$$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, params, $3);
 		}
 	| declarator declaration_list compound_statement
 		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3); }

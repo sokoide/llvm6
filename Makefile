@@ -2,7 +2,7 @@
 TARGET = ./ccompiler
 CXX = g++
 CC = gcc
-CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Isrc
+CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Isrc
 CFLAGS = -Wall -Wextra -O2
 LIBS =
 
@@ -219,12 +219,12 @@ validate: test-integration
 # Unit tests
 unit-tests: $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS)
 	@echo "Building unit tests..."
-	$(CXX) $(CXXFLAGS) -o ./unit_tests $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS)
+	$(CXX) $(CXXFLAGS) -o ./unit_tests $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS) --coverage
 
 # Pointer/Struct tests
 pointer-struct-tests: $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS)
 	@echo "Building pointer and struct tests..."
-	$(CXX) $(CXXFLAGS) -o ./pointer_struct_tests $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS)
+	$(CXX) $(CXXFLAGS) -o ./pointer_struct_tests $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS) --coverage
 
 # Run unit tests (includes pointer/struct tests)
 test-unit: unit-tests pointer-struct-tests
@@ -399,4 +399,16 @@ benchmark-stress: $(TARGET)
 	@echo \"Running stress tests...\"
 	@scripts/benchmark.sh --stress
 
-.PHONY: all clean distclean run debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress
+# Static analysis targets
+static-analysis: cppcheck
+	@echo "Static analysis complete"
+
+cppcheck:
+	@echo "Running cppcheck..."
+	@if which cppcheck >/dev/null 2>&1; then \
+		cppcheck --enable=all --inconclusive --std=c++17 -I src --suppress=missingIncludeSystem --error-exitcode=0 src/*.cpp 2>&1 | tee build/cppcheck.log; \
+	else \
+		echo "WARNING: cppcheck not found. Install with: brew install cppcheck (macOS) or apt-get install cppcheck (Linux)"; \
+	fi
+
+.PHONY: all clean distclean run debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
