@@ -23,6 +23,8 @@ static char* safe_strdup(const char* str) {
     return new_str;
 }
 
+static void emit_all_global_constants(CodeGenContext* ctx);
+
 /* Context management */
 CodeGenContext* create_codegen_context(FILE* output) {
     auto ctx =
@@ -62,6 +64,14 @@ void free_codegen_context(CodeGenContext* ctx) {
         ctx->bb_list = next;
     }
 
+    /* Free global constants */
+    while (ctx->global_constants) {
+        GlobalConstant* next = ctx->global_constants->next;
+        free(ctx->global_constants->declaration);
+        free(ctx->global_constants);
+        ctx->global_constants = next;
+    }
+
     if (ctx->current_function_name) {
         free(ctx->current_function_name);
     }
@@ -81,6 +91,9 @@ void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
     generate_module_header(ctx);
     generate_runtime_declarations(ctx);
     process_ast_nodes(ctx, ast);
+
+    /* Emit global constants at the end of the module */
+    emit_all_global_constants(ctx);
 }
 
 void generate_module_header(CodeGenContext* ctx) {
@@ -1051,13 +1064,80 @@ LLVMValue* generate_constant(CodeGenContext* ctx, ASTNode* constant) {
 LLVMValue* generate_string_literal(CodeGenContext* ctx, ASTNode* string_lit) {
     /* Generate global string constant */
     char* global_name = get_next_register(ctx);
+    const char* str = string_lit->data.string_literal.string;
     int length = string_lit->data.string_literal.length;
+
+    /* Process escape sequences and remove surrounding quotes */
+    char* processed = static_cast<char*>(safe_malloc(length * 2 + 1)); /* Extra space for escapes */
+    int j = 0;
+    for (int i = 0; i < length; i++) {
+        if (str[i] == '\\' && i + 1 < length) {
+            /* Handle escape sequences */
+            switch (str[i + 1]) {
+            case 'n':
+                processed[j++] = '\\';
+                processed[j++] = '0';
+                processed[j++] = 'A';
+                i++; /* Skip the 'n' */
+                break;
+            case 't':
+                processed[j++] = '\\';
+                processed[j++] = '0';
+                processed[j++] = '9';
+                i++;
+                break;
+            case 'r':
+                processed[j++] = '\\';
+                processed[j++] = '0';
+                processed[j++] = 'D';
+                i++;
+                break;
+            case '0':
+                processed[j++] = '\\';
+                processed[j++] = '0';
+                processed[j++] = '0';
+                i++;
+                break;
+            case '\\':
+                processed[j++] = '\\';
+                processed[j++] = '\\';
+                i++;
+                break;
+            case '"':
+                processed[j++] = '\\';
+                processed[j++] = '"';
+                i++;
+                break;
+            default:
+                processed[j++] = str[i];
+                break;
+            }
+        } else if (str[i] != '"') {
+            /* Skip surrounding quotes */
+            processed[j++] = str[i];
+        }
+    }
+    processed[j] = '\0';
+
+    /* Calculate actual byte length for LLVM [N x i8] */
+    int byte_length = 0;
+    for (int i = 0; i < length; i++) {
+        if (str[i] == '"')
+            continue;
+        if (str[i] == '\\' && i + 1 < length) {
+            byte_length++;
+            i++;
+        } else {
+            byte_length++;
+        }
+    }
 
     emit_global_declaration(ctx,
                             "@%s = private unnamed_addr constant [%d x i8] "
                             "c\"%s\\00\"",
-                            global_name, length + 1,
-                            string_lit->data.string_literal.string);
+                            global_name, byte_length + 1, processed);
+
+    free(processed);
 
     LLVMValue* result =
         create_llvm_value(LLVM_VALUE_GLOBAL, global_name,
@@ -1288,13 +1368,36 @@ void emit_instruction(CodeGenContext* ctx, const char* format, ...) {
 }
 
 void emit_global_declaration(CodeGenContext* ctx, const char* format, ...) {
+    char buffer[2048];
     va_list args;
     va_start(args, format);
-
-    vfprintf(ctx->output, format, args);
-    fprintf(ctx->output, "\n");
-
+    vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
+
+    auto gc = static_cast<GlobalConstant*>(safe_malloc(sizeof(GlobalConstant)));
+    gc->declaration = safe_strdup(buffer);
+    gc->next = NULL;
+
+    if (!ctx->global_constants) {
+        ctx->global_constants = gc;
+    } else {
+        GlobalConstant* current = ctx->global_constants;
+        while (current->next) {
+            current = current->next;
+        }
+        current->next = gc;
+    }
+}
+
+static void emit_all_global_constants(CodeGenContext* ctx) {
+    auto current = ctx->global_constants;
+    if (current) {
+        fprintf(ctx->output, "\n; Global constants\n");
+    }
+    while (current) {
+        fprintf(ctx->output, "%s\n", current->declaration);
+        current = current->next;
+    }
 }
 
 void emit_function_header(CodeGenContext* ctx, const char* format, ...) {
@@ -1678,14 +1781,20 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
         }
 
         char arg_spec[256];
+        char* type_str = llvm_type_to_string(arg_val->llvm_type);
+
         if (arg_val->type == LLVM_VALUE_CONSTANT) {
             /* For constants, use the value directly */
-            snprintf(arg_spec, sizeof(arg_spec), "i32 %s", arg_val->name);
+            snprintf(arg_spec, sizeof(arg_spec), "%s %s", type_str, arg_val->name);
+        } else if (arg_val->type == LLVM_VALUE_GLOBAL) {
+            /* For global values (like string literals), use @ notation */
+            snprintf(arg_spec, sizeof(arg_spec), "%s @%s", type_str, arg_val->name);
         } else {
             /* For variables/registers, use register notation */
-            snprintf(arg_spec, sizeof(arg_spec), "i32 %%%s", arg_val->name);
+            snprintf(arg_spec, sizeof(arg_spec), "%s %%%s", type_str, arg_val->name);
         }
         strcat(arg_list, arg_spec);
+        free(type_str);
 
         free_llvm_value(arg_val);
         arg = arg->next;

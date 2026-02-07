@@ -100,7 +100,7 @@ L?'(\\.|[^\\'])+'	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
 {D}*"."{D}+({E})?{FS}?	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
 {D}+"."{D}*({E})?{FS}?	{ count(); safe_strdup_to_yylval(yytext); return(CONSTANT); }
 
-L?\\"(\\.|[^\\\"])*\\"	{ count(); safe_strdup_to_yylval(yytext); return(STRING_LITERAL); }
+L?\"(\\.|[^\\"])*\"	{ count(); safe_strdup_to_yylval(yytext); return(STRING_LITERAL); }
 
 "..."			{ count(); return(ELLIPSIS); }
 ">>="			{ count(); return(RIGHT_ASSIGN); }

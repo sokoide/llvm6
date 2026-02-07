@@ -13,6 +13,13 @@ extern "C" {
 typedef struct CodeGenContext CodeGenContext;
 typedef struct LLVMValue LLVMValue;
 typedef struct BasicBlock BasicBlock;
+typedef struct GlobalConstant GlobalConstant;
+
+/* Global constant for module-level emission */
+struct GlobalConstant {
+    char* declaration;
+    GlobalConstant* next;
+};
 
 /* LLVM value representation */
 typedef enum {
@@ -63,6 +70,9 @@ struct CodeGenContext {
     /* Temporary storage */
     char temp_buffer[1024];
     int indent_level;
+
+    /* Global constants to be emitted at module level */
+    GlobalConstant* global_constants;
 };
 
 /* Function prototypes */
