@@ -10,6 +10,7 @@ ccompiler
 .serena/
 .claude/
 .codex/
+conductor/archive/
 
 # Build directory (contains all generated files)
 build/

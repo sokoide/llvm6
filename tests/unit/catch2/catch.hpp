@@ -86,19 +86,22 @@ namespace Catch {
     };
 }
 
+#define CATCH_INTERNAL_CONCAT2(a, b) a##b
+#define CATCH_INTERNAL_CONCAT(a, b) CATCH_INTERNAL_CONCAT2(a, b)
+
 #define TEST_CASE(name) \
-    void CATCH_INTERNAL_TestFunction##__LINE__(); \
+    static void CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestFunction, __LINE__)(); \
     namespace { \
-        struct CATCH_INTERNAL_TestRegistrar##__LINE__ { \
-            CATCH_INTERNAL_TestRegistrar##__LINE__() { \
+        struct CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestRegistrar, __LINE__) { \
+            CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestRegistrar, __LINE__)() { \
                 Catch::TestRegistry::instance().add( \
-                    Catch::TestCase(name, __FILE__, __LINE__, &CATCH_INTERNAL_TestFunction##__LINE__) \
+                    Catch::TestCase(name, __FILE__, __LINE__, &CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestFunction, __LINE__)) \
                 ); \
             } \
         }; \
-        static CATCH_INTERNAL_TestRegistrar##__LINE__ CATCH_INTERNAL_testRegistrar##__LINE__; \
+        static CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestRegistrar, __LINE__) CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_testRegistrar, __LINE__); \
     } \
-    void CATCH_INTERNAL_TestFunction##__LINE__()
+    static void CATCH_INTERNAL_CONCAT(CATCH_INTERNAL_TestFunction, __LINE__)()
 
 #define REQUIRE(expr) \
     do { \
