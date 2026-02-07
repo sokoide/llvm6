@@ -74,6 +74,7 @@ typedef enum {
 /* Data Types */
 typedef enum {
     TYPE_VOID,
+    TYPE_BOOL,
     TYPE_CHAR,
     TYPE_SHORT,
     TYPE_INT,
@@ -172,6 +173,7 @@ struct Symbol {
     int offset; /* for local variables */
     int is_global;
     int is_parameter; /* true if this is a function parameter */
+    int is_array;     /* true if this is an array */
     struct Symbol* next;
 };
 
@@ -188,7 +190,7 @@ struct ASTNode {
             ASTNode* parameters; /* for function declarators */
             int is_variadic;     /* for function declarators */
             int pointer_level;
-            int array_size;      /* for array declarators, 0 = not array */
+            struct ASTNode* array_dimensions; /* for array declarators, linked list of CONSTANT nodes */
         } identifier;
 
         struct {
@@ -296,7 +298,7 @@ struct ASTNode {
             char* name;
             ASTNode* initializer;
             int pointer_level;
-            int array_size;      /* for array declarations, 0 = not array */
+            struct ASTNode* array_dimensions;      /* for array declarations, linked list of CONSTANT nodes */
         } variable_decl;
 
         struct {
@@ -313,6 +315,12 @@ struct ASTNode {
             ASTNode* members;     /* list of member declarations */
             Symbol* symbol_table; /* struct's symbol table */
         } struct_decl;
+
+        /* Initializer list */
+        struct {
+            ASTNode* items;
+            int count; /* Optional, can count while traversing */
+        } initializer_list;
 
         /* Lists */
         struct {
@@ -335,6 +343,7 @@ ASTNode* create_ast_node(ASTNodeType type);
 ASTNode* create_identifier_node(const char* name);
 ASTNode* create_constant_node(int value, DataType type);
 ASTNode* create_string_literal_node(const char* string);
+int parse_constant_value(const char* s);
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right);
 ASTNode* create_unary_op_node(UnaryOp op, ASTNode* operand);
 ASTNode* create_function_call_node(ASTNode* function, ASTNode* arguments);

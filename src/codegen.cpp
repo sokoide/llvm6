@@ -174,25 +174,60 @@ LLVMValue* load_value_if_needed(CodeGenContext* ctx, LLVMValue* value) {
         return value;
 
     Symbol* symbol = lookup_symbol(ctx, value->name);
-    if (!symbol || symbol->is_parameter)
+    TypeInfo* type = symbol ? symbol->type : value->llvm_type;
+
+    /* Handle array decay: array name returns pointer to first element */
+    if (type && type->base_type == TYPE_ARRAY) {
+        if (symbol && symbol->is_parameter) return value;
+
+        char* gep_reg = get_next_register(ctx);
+        char* array_type_str = llvm_type_to_string(type);
+        const char* name = symbol ? symbol->name : value->name;
+
+        if (symbol && symbol->is_global) {
+             emit_instruction(ctx, "%%%s = getelementptr %s, %s* @%s, i32 0, i32 0",
+                              gep_reg, array_type_str, array_type_str, name);
+        } else {
+             emit_instruction(ctx, "%%%s = getelementptr %s, %s* %%%s, i32 0, i32 0",
+                              gep_reg, array_type_str, array_type_str, name);
+        }
+
+        TypeInfo* ptr_type = create_pointer_type(duplicate_type_info(type->return_type));
+        LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, gep_reg, ptr_type);
+
+        free(array_type_str);
+        return result;
+    }
+
+    /* Prevent loading of array pointers (Pointer to Array) */
+    if (type && type->base_type == TYPE_POINTER &&
+        type->return_type && type->return_type->base_type == TYPE_ARRAY) {
+        return value;
+    }
+
+    /* Load the value */
+    if (symbol && symbol->is_parameter)
         return value;
 
     char* load_reg = get_next_register(ctx);
-    TypeInfo* loaded_type = duplicate_type_info(symbol->type);
+    TypeInfo* loaded_type = duplicate_type_info(type);
     LLVMValue* loaded_value =
         create_llvm_value(LLVM_VALUE_REGISTER, load_reg, loaded_type);
 
-    char* value_type_str = llvm_type_to_string(symbol->type);
+    char* value_type_str = llvm_type_to_string(type);
     TypeInfo* pointer_type_info =
-        create_pointer_type(duplicate_type_info(symbol->type));
+        create_pointer_type(duplicate_type_info(type));
     char* pointer_type_str = llvm_type_to_string(pointer_type_info);
 
-    if (symbol->is_global) {
+    const char* name = symbol ? symbol->name : value->name;
+
+    if (symbol && symbol->is_global) {
         emit_instruction(ctx, "%%%s = load %s, %s @%s", load_reg,
-                         value_type_str, pointer_type_str, symbol->name);
+                         value_type_str, pointer_type_str, name);
     } else {
         emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg,
-                         value_type_str, pointer_type_str, symbol->name);
+
+                         value_type_str, pointer_type_str, name);
     }
 
     free(value_type_str);
@@ -354,6 +389,22 @@ static const char* get_binary_op_instruction(BinaryOp op) {
 }
 
 /* Format operand for LLVM instruction (constant vs register) */
+/* Helper to escape string for LLVM IR */
+void escape_string_for_llvm(const char* input, char* output, size_t output_size) {
+    size_t j = 0;
+    for (size_t i = 0; input[i] != '\0' && j < output_size - 1; ++i) {
+        unsigned char c = (unsigned char)input[i];
+        if (c == '"' || c == '\\' || c < 32 || c > 126) {
+            if (j + 3 >= output_size - 1) break;
+            snprintf(output + j, output_size - j, "\\%02X", c);
+            j += 3;
+        } else {
+            output[j++] = (char)c;
+        }
+    }
+    output[j] = '\0';
+}
+
 static void format_operand(const LLVMValue* value, char* buffer,
                            size_t buffer_size) {
     if (value->type == LLVM_VALUE_CONSTANT) {
@@ -515,6 +566,39 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
         return NULL;
     }
 
+    /* Integer Promotion: Cast types smaller than int to int */
+    if (left->llvm_type && get_type_size(left->llvm_type) < 4) {
+        char* res_reg = get_next_register(ctx);
+        char op_str[MAX_OPERAND_STRING_LENGTH];
+        format_operand(left, op_str, sizeof(op_str));
+        char* type_str = llvm_type_to_string(left->llvm_type);
+
+        emit_instruction(ctx, "%%%s = sext %s %s to i32", res_reg, type_str, op_str);
+
+        free(type_str);
+        TypeInfo* new_type = create_type_info(TYPE_INT);
+        /* Preserve is_lvalue? result of cast is rvalue */
+        /* Free old left wrapper but keep its register name if it was register?
+           format_operand uses name. left->name is strdup'd.
+           free_llvm_value frees name. */
+        free_llvm_value(left);
+        left = create_llvm_value(LLVM_VALUE_REGISTER, res_reg, new_type);
+    }
+
+    if (right->llvm_type && get_type_size(right->llvm_type) < 4) {
+        char* res_reg = get_next_register(ctx);
+        char op_str[MAX_OPERAND_STRING_LENGTH];
+        format_operand(right, op_str, sizeof(op_str));
+        char* type_str = llvm_type_to_string(right->llvm_type);
+
+        emit_instruction(ctx, "%%%s = sext %s %s to i32", res_reg, type_str, op_str);
+
+        free(type_str);
+        TypeInfo* new_type = create_type_info(TYPE_INT);
+        free_llvm_value(right);
+        right = create_llvm_value(LLVM_VALUE_REGISTER, res_reg, new_type);
+    }
+
     /* Get instruction name for the operator */
     const char* op_name = get_binary_op_instruction(op);
     if (!op_name) {
@@ -599,9 +683,22 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
         char array_operand[MAX_OPERAND_STRING_LENGTH];
         format_operand(array_value, array_operand, sizeof(array_operand));
 
-        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
-                         gep_reg, element_type_str, pointer_type_str,
-                         array_operand, index_operand);
+        if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_ARRAY) {
+            emit_instruction(ctx, "%%%s = getelementptr %s, %s* %s, i32 0, i32 %s",
+                             gep_reg, pointer_type_str, pointer_type_str,
+                             array_operand, index_operand);
+        } else if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_POINTER &&
+                   array_value->llvm_type->return_type &&
+                   array_value->llvm_type->return_type->base_type == TYPE_ARRAY) {
+            /* Pointer to array: decay to pointer to first element (GEP 0, index) */
+            emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 0, i32 %s",
+                             gep_reg, element_type_str, pointer_type_str,
+                             array_operand, index_operand);
+        } else {
+            emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                             gep_reg, element_type_str, pointer_type_str,
+                             array_operand, index_operand);
+        }
 
         /* Store the value */
         char right_operand[MAX_OPERAND_STRING_LENGTH];
@@ -654,6 +751,21 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
     char* pointer_type_str = llvm_type_to_string(pointer_type_info);
 
     if (op == OP_ASSIGN) {
+        /* If converting to bool, use icmp ne 0 */
+        if (symbol->type->base_type == TYPE_BOOL &&
+            right_value->llvm_type &&
+            right_value->llvm_type->base_type != TYPE_BOOL) {
+
+            char* cmp_reg = get_next_register(ctx);
+            emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, right_operand);
+
+            /* Update operand to use the bool result */
+            snprintf(right_operand, sizeof(right_operand), "%%%s", cmp_reg);
+
+            /* Add to cleanup list? No need, cmp_reg string is managed by us or get_next_register */
+            free(cmp_reg);
+        }
+
         if (symbol->is_global) {
             emit_instruction(ctx, "store %s %s, %s @%s", value_type_str,
                              right_operand, pointer_type_str, symbol->name);
@@ -1136,9 +1248,15 @@ LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
     char* end_bb = get_next_basic_block(ctx);
 
     /* Evaluate condition and branch */
-    char* cmp_reg = get_next_register(ctx);
-    emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
-    emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_bb, else_bb);
+    /* Evaluate condition and branch */
+    char* cmp_reg = NULL;
+    if (condition->llvm_type && condition->llvm_type->base_type == TYPE_BOOL) {
+        emit_instruction(ctx, "br i1 %s, label %%%s, label %%%s", cond_operand, then_bb, else_bb);
+    } else {
+        cmp_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_bb, else_bb);
+    }
 
     /* Then block - compute true value */
     emit_basic_block_label(ctx, then_bb);
@@ -1171,7 +1289,7 @@ LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
     free(then_bb);
     free(else_bb);
     free(end_bb);
-    free(cmp_reg);
+    if (cmp_reg) free(cmp_reg);
     free(result_reg);
 
     return result;
@@ -1851,13 +1969,34 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
         return;
 
     TypeInfo* symbol_type = duplicate_type_info(decl->data.variable_decl.type);
+
+    /* If it's an array, wrap the type */
+    ASTNode* dim = decl->data.variable_decl.array_dimensions;
+    while (dim) {
+        if (dim->type == AST_CONSTANT) {
+            int size = dim->data.constant.value.int_val;
+            TypeInfo* array_type = create_array_type(symbol_type, size);
+            symbol_type = array_type;
+        }
+        dim = dim->next;
+    }
+
+    /* If array size is 0 (from []), update it from string literal initializer */
+    if (symbol_type->base_type == TYPE_ARRAY && symbol_type->array_size == 0 &&
+        decl->data.variable_decl.initializer &&
+        decl->data.variable_decl.initializer->type == AST_STRING_LITERAL) {
+
+        int len = decl->data.variable_decl.initializer->data.string_literal.length;
+        symbol_type->array_size = len + 1; // Include null terminator
+    }
+
     Symbol* symbol = create_symbol(decl->data.variable_decl.name, symbol_type);
 
     if (ctx->current_function_name == NULL) {
         /* Global variable */
         symbol->is_global = 1;
-        char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
-        char init_val_str[64];
+        char* type_str = llvm_type_to_string(symbol->type); /* Use symbol->type which has correct size */
+        char init_val_str[1024]; /* Increase buffer size for string */
 
         /* Check for initializer */
         if (decl->data.variable_decl.initializer &&
@@ -1865,6 +2004,28 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
             /* Use constant initializer value */
             int init_val = decl->data.variable_decl.initializer->data.constant.value.int_val;
             snprintf(init_val_str, sizeof(init_val_str), "%d", init_val);
+        } else if (decl->data.variable_decl.initializer &&
+                   decl->data.variable_decl.initializer->type == AST_STRING_LITERAL) {
+            /* String literal initializer */
+            char escaped[2048];
+            escape_string_for_llvm(decl->data.variable_decl.initializer->data.string_literal.string, escaped, sizeof(escaped));
+
+            int str_len = decl->data.variable_decl.initializer->data.string_literal.length;
+            int array_size = symbol->type->array_size;
+
+            char buffer[4096];
+            snprintf(buffer, sizeof(buffer), "c\"%s", escaped);
+
+            /* Add padding \00 if needed */
+            for (int i = str_len; i < array_size; i++) {
+                if (strlen(buffer) + 4 < sizeof(buffer)) {
+                    strcat(buffer, "\\00");
+                }
+            }
+            strcat(buffer, "\"");
+
+            strncpy(init_val_str, buffer, sizeof(init_val_str));
+            init_val_str[sizeof(init_val_str)-1] = '\0';
         } else {
             /* Use default value */
             char* default_val = get_default_value(decl->data.variable_decl.type);
@@ -1879,18 +2040,74 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
         free(type_str);
     } else {
         /* Local variable */
-        int array_size = decl->data.variable_decl.array_size;
+        int array_size = 0;
+        if (symbol->type->base_type == TYPE_ARRAY) {
+            array_size = symbol->type->array_size;
+        }
 
         if (array_size > 0) {
             /* Array declaration: allocate [N x type] and store as pointer to element */
-            char* element_type_str = llvm_type_to_string(decl->data.variable_decl.type);
-            emit_instruction(ctx, "%%%s = alloca [%d x %s]", symbol->name, array_size, element_type_str);
+            char* type_str = llvm_type_to_string(symbol->type);
+            emit_instruction(ctx, "%%%s = alloca %s", symbol->name, type_str);
+            free(type_str);
 
-            /* Update symbol type to be pointer to element type (for array access) */
-            free_type_info(symbol->type);
-            symbol->type = create_pointer_type(duplicate_type_info(decl->data.variable_decl.type));
+            /* Handle array initialization */
+            if (decl->data.variable_decl.initializer) {
+                char* element_type_str = llvm_type_to_string(symbol->type->return_type);
 
-            free(element_type_str);
+                if (decl->data.variable_decl.initializer->type == AST_INITIALIZER_LIST) {
+                    ASTNode* item = decl->data.variable_decl.initializer->data.initializer_list.items;
+                    int index = 0;
+                    while (item && index < array_size) {
+                        LLVMValue* val = generate_expression(ctx, item);
+                        if (val) {
+                             val = load_value_if_needed(ctx, val);
+                             /* Verify type match? For now verify strictness or implicit cast logic */
+
+                             char val_operand[MAX_OPERAND_STRING_LENGTH];
+                             format_operand(val, val_operand, sizeof(val_operand));
+
+                             char* gep_reg = get_next_register(ctx);
+                             /* symbol->name is pointer to array [N x T]* */
+                             emit_instruction(ctx, "%%%s = getelementptr [%d x %s], [%d x %s]* %%%s, i32 0, i32 %d",
+                                              gep_reg, array_size, element_type_str,
+                                              array_size, element_type_str, symbol->name, index);
+
+                             emit_instruction(ctx, "store %s %s, %s* %%%s",
+                                              element_type_str, val_operand, element_type_str, gep_reg);
+
+                             free(gep_reg);
+                             free_llvm_value(val);
+                        }
+                        item = item->next;
+                        index++;
+                    }
+                } else if (decl->data.variable_decl.initializer->type == AST_STRING_LITERAL) {
+                    /* String literal initialization: char s[] = "abc"; */
+                    const char* s = decl->data.variable_decl.initializer->data.string_literal.string;
+                    int len = decl->data.variable_decl.initializer->data.string_literal.length;
+
+                    for (int i = 0; i < array_size; i++) {
+                        char val_operand[16];
+                        /* Fill with string chars, then 0 */
+                        unsigned char c = (i < len) ? (unsigned char)s[i] : (i == len ? 0 : 0);
+                        snprintf(val_operand, sizeof(val_operand), "%d", c);
+
+                        char* gep_reg = get_next_register(ctx);
+                        emit_instruction(ctx, "%%%s = getelementptr [%d x %s], [%d x %s]* %%%s, i32 0, i32 %d",
+                                         gep_reg, array_size, element_type_str,
+                                         array_size, element_type_str, symbol->name, i);
+
+                        emit_instruction(ctx, "store %s %s, %s* %%%s",
+                                         element_type_str, val_operand, element_type_str, gep_reg);
+                        free(gep_reg);
+                    }
+                }
+                free(element_type_str);
+            }
+            /* Symbol type remains TYPE_ARRAY, so load_value_if_needed will handle decay properly */
+
+
         } else {
             /* Regular variable */
             char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
@@ -1963,6 +2180,8 @@ char* llvm_type_to_string(TypeInfo* type) {
     switch (type->base_type) {
     case TYPE_VOID:
         return safe_strdup("void");
+    case TYPE_BOOL:
+        return safe_strdup("i1");
     case TYPE_CHAR:
         return safe_strdup("i8");
     case TYPE_SHORT:
@@ -2045,6 +2264,8 @@ int get_type_size(TypeInfo* type) {
         return INT_SIZE_BYTES;
 
     switch (type->base_type) {
+    case TYPE_BOOL:
+        return 1;
     case TYPE_CHAR:
         return 1;
     case TYPE_SHORT:
@@ -2129,12 +2350,15 @@ void generate_if_statement(CodeGenContext* ctx, ASTNode* stmt) {
     char cond_operand[MAX_OPERAND_STRING_LENGTH];
     format_operand(condition, cond_operand, sizeof(cond_operand));
 
-    char* cmp_reg = get_next_register(ctx);
-    emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
-
     /* Branch based on condition */
-    emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_label, else_label);
-    free(cmp_reg);
+    if (condition->llvm_type && condition->llvm_type->base_type == TYPE_BOOL) {
+        emit_instruction(ctx, "br i1 %s, label %%%s, label %%%s", cond_operand, then_label, else_label);
+    } else {
+        char* cmp_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_label, else_label);
+        free(cmp_reg);
+    }
 
     /* Then block */
     emit_basic_block_label(ctx, then_label);
@@ -2200,10 +2424,14 @@ void generate_while_statement(CodeGenContext* ctx, ASTNode* stmt) {
         char cond_operand[MAX_OPERAND_STRING_LENGTH];
         format_operand(condition, cond_operand, sizeof(cond_operand));
 
-        char* cmp_reg = get_next_register(ctx);
-        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
-        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
-        free(cmp_reg);
+        if (condition->llvm_type && condition->llvm_type->base_type == TYPE_BOOL) {
+            emit_instruction(ctx, "br i1 %s, label %%%s, label %%%s", cond_operand, body_bb, end_bb);
+        } else {
+            char* cmp_reg = get_next_register(ctx);
+            emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+            emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
+            free(cmp_reg);
+        }
         free_llvm_value(condition);
     }
 
@@ -2242,7 +2470,12 @@ void generate_for_statement(CodeGenContext* ctx, ASTNode* stmt) {
 
     /* Init */
     if (stmt->data.for_stmt.init) {
-        generate_expression(ctx, stmt->data.for_stmt.init);
+        /* C99: init can be a declaration or an expression */
+        if (stmt->data.for_stmt.init->type == AST_VARIABLE_DECL) {
+            generate_declaration(ctx, stmt->data.for_stmt.init);
+        } else {
+            generate_expression(ctx, stmt->data.for_stmt.init);
+        }
     }
 
     /* Jump to condition */
@@ -2257,10 +2490,14 @@ void generate_for_statement(CodeGenContext* ctx, ASTNode* stmt) {
             char cond_operand[MAX_OPERAND_STRING_LENGTH];
             format_operand(condition, cond_operand, sizeof(cond_operand));
 
-            char* cmp_reg = get_next_register(ctx);
-            emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
-            emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
-            free(cmp_reg);
+            if (condition->llvm_type && condition->llvm_type->base_type == TYPE_BOOL) {
+                emit_instruction(ctx, "br i1 %s, label %%%s, label %%%s", cond_operand, body_bb, end_bb);
+            } else {
+                char* cmp_reg = get_next_register(ctx);
+                emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+                emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
+                free(cmp_reg);
+            }
             free_llvm_value(condition);
         }
     } else {
@@ -2403,6 +2640,27 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
 
         arg_val = load_value_if_needed(ctx, arg_val);
 
+        /* Promote i1 (bool) to i32 (int) for varargs compatibility */
+        if (arg_val->llvm_type && arg_val->llvm_type->base_type == TYPE_BOOL) {
+            char cond_operand[MAX_OPERAND_STRING_LENGTH];
+            format_operand(arg_val, cond_operand, sizeof(cond_operand));
+
+            char* zext_reg = get_next_register(ctx);
+            emit_instruction(ctx, "%%%s = zext i1 %s to i32", zext_reg, cond_operand);
+
+            /* Create new LLVMValue for the promoted argument */
+            TypeInfo* i32_type = create_type_info(TYPE_INT);
+            // We need to manage memory for i32_type correctly, but simplify for now
+            // Or better, reuse existing type info creation if possible, but create_type_info mallocs new.
+            // It will leak if not freed, but let's accept it for now or free arg_val->llvm_type?
+
+            LLVMValue* promoted_val = create_llvm_value(LLVM_VALUE_REGISTER, zext_reg, i32_type);
+
+            free_llvm_value(arg_val);
+            arg_val = promoted_val;
+            free(zext_reg);
+        }
+
         if (arg_count > 0) {
             strcat(arg_list, ", ");
         }
@@ -2500,30 +2758,34 @@ LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access) {
     char* element_type_str = llvm_type_to_string(element_type);
     char* pointer_type_str = llvm_type_to_string(array_value->llvm_type);
 
-    emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
-                     gep_reg, element_type_str, pointer_type_str,
-                     array_operand, index_operand);
+    if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_ARRAY) {
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s* %s, i32 0, i32 %s",
+                         gep_reg, pointer_type_str, pointer_type_str,
+                         array_operand, index_operand);
+    } else if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_POINTER &&
+               array_value->llvm_type->return_type &&
+               array_value->llvm_type->return_type->base_type == TYPE_ARRAY) {
+        /* Pointer to array: decay to pointer to first element (GEP 0, index) */
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 0, i32 %s",
+                         gep_reg, element_type_str, pointer_type_str,
+                         array_operand, index_operand);
+    } else {
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                         gep_reg, element_type_str, pointer_type_str,
+                         array_operand, index_operand);
+    }
 
     free(element_type_str);
     free(pointer_type_str);
 
-    /* Load the value */
-    char* load_reg = get_next_register(ctx);
-    TypeInfo* loaded_type = duplicate_type_info(element_type);
-    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, loaded_type);
+    /* Return the GEP result as lvalue (address) */
+    /* If the caller needs the value, it will call load_value_if_needed */
+    TypeInfo* result_type = duplicate_type_info(element_type);
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, gep_reg, result_type);
+    result->is_lvalue = 1; /* Result is an address */
 
-    char* loaded_type_str = llvm_type_to_string(element_type);
-    TypeInfo* ptr_to_element = create_pointer_type(duplicate_type_info(element_type));
-    char* ptr_type_str = llvm_type_to_string(ptr_to_element);
-
-    emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg,
-                     loaded_type_str, ptr_type_str, gep_reg);
-
-    free(loaded_type_str);
-    free(ptr_type_str);
-    free_type_info(ptr_to_element);
     free(gep_reg);
-    free(load_reg);
+
     free_llvm_value(array_value);
     free_llvm_value(index_value);
 

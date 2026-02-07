@@ -132,7 +132,7 @@ $(BUILD_DIR)/lex.yy.o: $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/gr
 # Generate parser from grammar
 $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: src/grammar.y | $(BUILD_DIR)/generated
 	@echo "Generating parser..."
-	bison -d -v -o $(BUILD_DIR)/generated/grammar.tab.cpp src/grammar.y
+	bison -d -v -t -o $(BUILD_DIR)/generated/grammar.tab.cpp src/grammar.y
 
 # Generate lexer from specification
 $(BUILD_DIR)/generated/lex.yy.c: src/lexer.l $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)/generated

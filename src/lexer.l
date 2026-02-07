@@ -55,8 +55,10 @@ IS			(u|U|l|L)*
 
 %%
 "/*"			{ comment(); }
+"//".*			{ count(); /* C99 single-line comment */ }
 
 "auto"			{ count(); return(AUTO); }
+"_Bool"			{ count(); return(BOOL); }
 "break"			{ count(); return(BREAK); }
 "case"			{ count(); return(CASE); }
 "char"			{ count(); return(CHAR); }

@@ -35,6 +35,7 @@ struct LLVMValue {
     char* name;
     TypeInfo* llvm_type;
     int is_lvalue;
+    int is_array_pointer; /* true if this value is a pointer to an array (needs decay) */
     union {
         int reg_id;
         int constant_val;

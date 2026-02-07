@@ -14,8 +14,11 @@ extern int yyparse(void);
 extern int yylineno;
 extern char* yytext;
 extern int yylex(void);
+extern int yydebug;
 }
 extern ASTNode* program_ast;
+
+
 
 /* Global options */
 struct CompilerOptions {
@@ -168,6 +171,10 @@ int main(int argc, char* argv[]) {
     }
 
     /* Initialize code generation context */
+    if (options.debug_mode) {
+        yydebug = 1;
+    }
+
     ctx = create_codegen_context(output_file);
     if (!ctx) {
         fprintf(stderr, "Error: Failed to create code generation context\n");

@@ -60,7 +60,7 @@ int yyerror(const char* s);
 
 %token TYPEDEF EXTERN STATIC AUTO REGISTER
 %token CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
-%token STRUCT UNION ENUM ELLIPSIS
+%token STRUCT UNION ENUM ELLIPSIS BOOL
 
 %token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
 
@@ -73,6 +73,7 @@ int yyerror(const char* s);
 %type <ast_node> conditional_expression assignment_expression expression
 %type <ast_node> constant_expression declaration
 %type <ast_node> init_declarator_list init_declarator declarator
+%type <ast_node> block_item block_item_list
 %type <ast_node> direct_declarator type_qualifier_list
 %type <int_val> pointer
 %type <ast_node> parameter_list parameter_declaration
@@ -81,7 +82,7 @@ int yyerror(const char* s);
 %type <type_info> type_name
 %type <ast_node> direct_abstract_declarator initializer initializer_list
 %type <ast_node> statement labeled_statement compound_statement
-%type <ast_node> declaration_list statement_list expression_statement
+%type <ast_node> declaration_list expression_statement
 %type <ast_node> selection_statement iteration_statement jump_statement
 %type <ast_node> translation_unit external_declaration function_definition
 %type <ast_node> struct_or_union_specifier struct_declaration_list
@@ -102,7 +103,7 @@ primary_expression
 	: IDENTIFIER
 		{ $$ = create_identifier_node($1); }
 	| CONSTANT
-		{ $$ = create_constant_node(atoi($1), TYPE_INT); }
+		{ $$ = create_constant_node(parse_constant_value($1), TYPE_INT); }
 	| STRING_LITERAL
 		{ $$ = create_string_literal_node($1); }
 	| '(' expression ')'
@@ -414,14 +415,14 @@ init_declarator
 			} else {
 				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
 				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
-				$$->data.variable_decl.array_size = $1->data.identifier.array_size;
+				$$->data.variable_decl.array_dimensions = $1->data.identifier.array_dimensions;
 			}
 		}
 	| declarator '=' initializer
 		{
 			$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
 			$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
-			$$->data.variable_decl.array_size = $1->data.identifier.array_size;
+			$$->data.variable_decl.array_dimensions = $1->data.identifier.array_dimensions;
 		}
 	;
 
@@ -435,6 +436,7 @@ storage_class_specifier
 
 type_specifier
 	: VOID      { $$ = create_type_info(TYPE_VOID); }
+	| BOOL      { $$ = create_type_info(TYPE_BOOL); }
 	| CHAR      { $$ = create_type_info(TYPE_CHAR); }
 	| SHORT     { $$ = create_type_info(TYPE_SHORT); }
 	| INT       { $$ = create_type_info(TYPE_INT); }
@@ -562,17 +564,22 @@ direct_declarator
 	| direct_declarator '[' constant_expression ']'
 		{
 			$$ = $1;
-			/* Extract array size from constant expression */
+			/* Prepend array dimension to dimension list */
 			if ($3 && $3->type == AST_CONSTANT) {
-				$$->data.identifier.array_size = $3->data.constant.value.int_val;
+				$3->next = $$->data.identifier.array_dimensions;
+				$$->data.identifier.array_dimensions = $3;
 			} else {
-				$$->data.identifier.array_size = 0; /* Unknown size */
+				ASTNode* zero = create_constant_node(0, TYPE_INT);
+				zero->next = $$->data.identifier.array_dimensions;
+				$$->data.identifier.array_dimensions = zero;
 			}
 		}
 	| direct_declarator '[' ']'
 		{
 			$$ = $1;
-			$$->data.identifier.array_size = 0; /* Empty brackets = unknown size */
+			ASTNode* zero = create_constant_node(0, TYPE_INT);
+			zero->next = $$->data.identifier.array_dimensions;
+			$$->data.identifier.array_dimensions = zero;
 		}
 	| direct_declarator '(' parameter_type_list ')'
 		{
@@ -703,9 +710,23 @@ initializer
 	: assignment_expression
 		{ $$ = $1; }
 	| '{' initializer_list '}'
-		{ $$ = $2; }
+		{
+			$$ = create_ast_node(AST_INITIALIZER_LIST);
+			$$->data.initializer_list.items = $2;
+			int count = 0;
+			ASTNode* current = $2;
+			while (current) { count++; current = current->next; }
+			$$->data.initializer_list.count = count;
+		}
 	| '{' initializer_list ',' '}'
-		{ $$ = $2; }
+		{
+			$$ = create_ast_node(AST_INITIALIZER_LIST);
+			$$->data.initializer_list.items = $2;
+			int count = 0;
+			ASTNode* current = $2;
+			while (current) { count++; current = current->next; }
+			$$->data.initializer_list.count = count;
+		}
 	;
 
 initializer_list
@@ -752,23 +773,31 @@ labeled_statement
 compound_statement
 	: '{' '}'
 		{ $$ = create_compound_stmt_node(NULL); }
-	| '{' statement_list '}'
+	| '{' block_item_list '}'
 		{ $$ = create_compound_stmt_node($2); }
-	| '{' declaration_list '}'
-		{ $$ = create_compound_stmt_node($2); }
-	| '{' declaration_list statement_list '}'
+	;
+
+block_item_list
+	: block_item
+		{ $$ = $1; }
+	| block_item_list block_item
 		{
-			/* Combine declarations and statements */
-			if ($2) {
-				$$ = create_compound_stmt_node($2);
-				/* Chain the statement list to the end of declarations */
-				ASTNode* current = $2;
+			if ($1) {
+				$$ = $1;
+				ASTNode* current = $1;
 				while (current->next) current = current->next;
-				current->next = $3;
+				current->next = $2;
 			} else {
-				$$ = create_compound_stmt_node($3);
+				$$ = $2;
 			}
 		}
+	;
+
+block_item
+	: declaration
+		{ $$ = $1; }
+	| statement
+		{ $$ = $1; }
 	;
 
 declaration_list
@@ -787,17 +816,7 @@ declaration_list
 		}
 	;
 
-statement_list
-	: statement
-		{ $$ = $1; }
-	| statement_list statement
-		{
-			$$ = $1;
-			ASTNode* current = $1;
-			while (current->next) current = current->next;
-			current->next = $2;
-		}
-	;
+
 
 expression_statement
 	: ';'
@@ -838,6 +857,24 @@ iteration_statement
 		{ $$ = create_for_stmt_node($3, $4, NULL, $6); }
 	| FOR '(' expression_statement expression_statement expression ')' statement
 		{ $$ = create_for_stmt_node($3, $4, $5, $7); }
+	| FOR '(' declaration expression_statement ')' statement
+		{
+			/* C99: for (int i = 0; condition; ) body */
+			$$ = create_ast_node(AST_FOR_STMT);
+			$$->data.for_stmt.init = $3;
+			$$->data.for_stmt.condition = $4;
+			$$->data.for_stmt.update = NULL;
+			$$->data.for_stmt.body = $6;
+		}
+	| FOR '(' declaration expression_statement expression ')' statement
+		{
+			/* C99: for (int i = 0; condition; update) body */
+			$$ = create_ast_node(AST_FOR_STMT);
+			$$->data.for_stmt.init = $3;
+			$$->data.for_stmt.condition = $4;
+			$$->data.for_stmt.update = $5;
+			$$->data.for_stmt.body = $7;
+		}
 	;
 
 jump_statement

@@ -50,9 +50,56 @@ ASTNode* create_constant_node(int value, DataType type) {
 
 ASTNode* create_string_literal_node(const char* string) {
     ASTNode* node = create_ast_node(AST_STRING_LITERAL);
-    node->data.string_literal.string = safe_strdup(string);
-    node->data.string_literal.length = strlen(string);
+
+    size_t len = strlen(string);
+    char* processed = (char*)safe_malloc(len + 1);
+
+    size_t j = 0;
+    /* Skip first quote (i=1), end before last quote (i < len-1) */
+    for (size_t i = 1; i < len - 1; i++) {
+        if (string[i] == '\\' && i + 1 < len - 1) {
+            char c = string[i+1];
+            switch (c) {
+                case 'n': processed[j++] = '\n'; break;
+                case 't': processed[j++] = '\t'; break;
+                case 'r': processed[j++] = '\r'; break;
+                case '0': processed[j++] = '\0'; break;
+                case '\\': processed[j++] = '\\'; break;
+                case '\'': processed[j++] = '\''; break;
+                case '"': processed[j++] = '"'; break;
+                default: processed[j++] = c; break;
+            }
+            i++;
+        } else {
+            processed[j++] = string[i];
+        }
+    }
+    processed[j] = '\0';
+
+    node->data.string_literal.string = processed;
+    node->data.string_literal.length = j;
     return node;
+}
+
+int parse_constant_value(const char* s) {
+    if (!s) return 0;
+    if (s[0] == '\'') {
+        if (s[1] == '\\') {
+            switch (s[2]) {
+                case 'n': return '\n';
+                case 't': return '\t';
+                case 'r': return '\r';
+                case '0': return '\0';
+                case '\\': return '\\';
+                case '\'': return '\'';
+                case '\"': return '\"';
+                default: return s[2];
+            }
+        }
+        return s[1];
+    }
+    // Handle hex, octal, decimal
+    return (int)strtol(s, NULL, 0);
 }
 
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right) {
