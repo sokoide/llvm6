@@ -120,6 +120,7 @@ void free_codegen_context(CodeGenContext* ctx) {
 /* Forward declarations */
 void generate_module_header(CodeGenContext* ctx);
 void process_ast_nodes(CodeGenContext* ctx, ASTNode* ast);
+void generate_switch_statement(CodeGenContext* ctx, ASTNode* stmt);
 
 /* Main code generation function */
 void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
@@ -543,6 +544,86 @@ LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr) {
     ASTNode* left_node = expr->data.binary_op.left;
     ASTNode* right_node = expr->data.binary_op.right;
     BinaryOp op = expr->data.binary_op.op;
+
+    /* Handle array access assignment (arr[i] = value) */
+    if (left_node->type == AST_ARRAY_ACCESS) {
+        if (op != OP_ASSIGN) {
+            codegen_error(ctx, "Compound assignment to array elements not yet supported");
+            return NULL;
+        }
+
+        ASTNode* array_node = left_node->data.array_access.array;
+        ASTNode* index_node = left_node->data.array_access.index;
+
+        /* Generate right-hand side value */
+        LLVMValue* right_value = generate_expression(ctx, right_node);
+        if (!right_value) return NULL;
+        right_value = load_value_if_needed(ctx, right_value);
+        if (!right_value) return NULL;
+
+        /* Generate array base address */
+        LLVMValue* array_value = generate_expression(ctx, array_node);
+        if (!array_value) {
+            free_llvm_value(right_value);
+            return NULL;
+        }
+
+        /* Generate index */
+        LLVMValue* index_value = generate_expression(ctx, index_node);
+        if (!index_value) {
+            free_llvm_value(right_value);
+            free_llvm_value(array_value);
+            return NULL;
+        }
+        index_value = load_value_if_needed(ctx, index_value);
+
+        /* Get element pointer using getelementptr */
+        char* gep_reg = get_next_register(ctx);
+        char index_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(index_value, index_operand, sizeof(index_operand));
+
+        /* Determine element type */
+        TypeInfo* element_type = NULL;
+        if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_POINTER) {
+            element_type = array_value->llvm_type->return_type;
+        } else if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_ARRAY) {
+            element_type = array_value->llvm_type->return_type;
+        }
+        if (!element_type) {
+            element_type = create_type_info(TYPE_INT);
+        }
+
+        char* element_type_str = llvm_type_to_string(element_type);
+        char* pointer_type_str = llvm_type_to_string(array_value->llvm_type);
+
+        char array_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(array_value, array_operand, sizeof(array_operand));
+
+        emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                         gep_reg, element_type_str, pointer_type_str,
+                         array_operand, index_operand);
+
+        /* Store the value */
+        char right_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(right_value, right_operand, sizeof(right_operand));
+
+        TypeInfo* ptr_to_element = create_pointer_type(duplicate_type_info(element_type));
+        char* ptr_type_str = llvm_type_to_string(ptr_to_element);
+
+        emit_instruction(ctx, "store %s %s, %s %%%s",
+                         element_type_str, right_operand, ptr_type_str, gep_reg);
+
+        free(element_type_str);
+        free(pointer_type_str);
+        free(ptr_type_str);
+        free_type_info(ptr_to_element);
+        free(gep_reg);
+        free_llvm_value(array_value);
+        free_llvm_value(index_value);
+
+        /* Return the stored value */
+        return right_value;
+    }
 
     if (left_node->type != AST_IDENTIFIER) {
         codegen_error(ctx, "Left side of assignment must be a variable");
@@ -1041,7 +1122,7 @@ LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op,
 
 LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
     /* Generate condition */
-    LLVMValue* condition = generate_expression(ctx, expr->data.binary_op.left);
+    LLVMValue* condition = generate_expression(ctx, expr->data.conditional_expr.condition);
     if (!condition)
         return NULL;
 
@@ -1053,7 +1134,6 @@ LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
     char* then_bb = get_next_basic_block(ctx);
     char* else_bb = get_next_basic_block(ctx);
     char* end_bb = get_next_basic_block(ctx);
-    char* result_reg = get_next_register(ctx);
 
     /* Evaluate condition and branch */
     char* cmp_reg = get_next_register(ctx);
@@ -1062,10 +1142,7 @@ LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
 
     /* Then block - compute true value */
     emit_basic_block_label(ctx, then_bb);
-    /* Get the then value from binary_op.right */
-    /* Note: AST_CONDITIONAL structure needs to be properly set up in parser */
-    /* For now, assume the structure is similar to if statement */
-    LLVMValue* then_val = generate_expression(ctx, expr->data.binary_op.right);
+    LLVMValue* then_val = generate_expression(ctx, expr->data.conditional_expr.then_expr);
     then_val = load_value_if_needed(ctx, then_val);
     char then_operand[MAX_OPERAND_STRING_LENGTH];
     format_operand(then_val, then_operand, sizeof(then_operand));
@@ -1073,38 +1150,95 @@ LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
 
     /* Else block - compute false value */
     emit_basic_block_label(ctx, else_bb);
-    /* For conditional operator, we'd need access to the third operand */
-    /* This is a simplified implementation */
+    LLVMValue* else_val = generate_expression(ctx, expr->data.conditional_expr.else_expr);
+    else_val = load_value_if_needed(ctx, else_val);
     char else_operand[MAX_OPERAND_STRING_LENGTH];
-    snprintf(else_operand, sizeof(else_operand), "0");
+    format_operand(else_val, else_operand, sizeof(else_operand));
     emit_instruction(ctx, "br label %%%s", end_bb);
 
     /* End block - phi node */
     emit_basic_block_label(ctx, end_bb);
+    char* result_reg = get_next_register(ctx);  /* Get result reg after branches */
     emit_instruction(ctx, "%%%s = phi i32 [ %s, %%%s ], [ %s, %%%s ]",
                      result_reg, then_operand, then_bb, else_operand, else_bb);
 
+    TypeInfo* result_type = create_type_info(TYPE_INT);
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg, result_type);
+
     free_llvm_value(condition);
     free_llvm_value(then_val);
+    free_llvm_value(else_val);
     free(then_bb);
     free(else_bb);
     free(end_bb);
     free(cmp_reg);
     free(result_reg);
 
-    return create_llvm_value(LLVM_VALUE_REGISTER, result_reg, create_type_info(TYPE_INT));
+    return result;
 }
 
 LLVMValue* generate_cast(CodeGenContext* ctx, ASTNode* expr) {
-    /* For now, implement basic numeric casts */
-    LLVMValue* operand = generate_expression(ctx, expr->data.binary_op.left);
+    TypeInfo* target_type = expr->data.cast_expr.target_type;
+    ASTNode* operand_node = expr->data.cast_expr.operand;
+
+    if (!target_type || !operand_node) {
+        codegen_error(ctx, "Invalid cast expression");
+        return NULL;
+    }
+
+    LLVMValue* operand = generate_expression(ctx, operand_node);
     if (!operand)
         return NULL;
 
     operand = load_value_if_needed(ctx, operand);
+    if (!operand)
+        return NULL;
 
-    /* Default: no-op cast */
-    return operand;
+    /* Get source and target sizes */
+    int src_size = get_type_size(operand->llvm_type);
+    int dst_size = get_type_size(target_type);
+
+    /* If same size, return as-is */
+    if (src_size == dst_size) {
+        TypeInfo* result_type = duplicate_type_info(target_type);
+        operand->llvm_type = result_type;
+        return operand;
+    }
+
+    char* result_reg = get_next_register(ctx);
+    char* src_type_str = llvm_type_to_string(operand->llvm_type);
+    char* dst_type_str = llvm_type_to_string(target_type);
+
+    char operand_str[MAX_OPERAND_STRING_LENGTH];
+    format_operand(operand, operand_str, sizeof(operand_str));
+
+    if (dst_size < src_size) {
+        /* Truncate */
+        emit_instruction(ctx, "%%%s = trunc %s %s to %s",
+                         result_reg, src_type_str, operand_str, dst_type_str);
+    } else {
+        /* Extend - use sign extension for most types (char, int, etc. are signed) */
+        DataType base = operand->llvm_type ? operand->llvm_type->base_type : TYPE_INT;
+        bool is_signed = (base == TYPE_INT || base == TYPE_CHAR || base == TYPE_SHORT ||
+                          base == TYPE_LONG);
+        if (is_signed) {
+            emit_instruction(ctx, "%%%s = sext %s %s to %s",
+                             result_reg, src_type_str, operand_str, dst_type_str);
+        } else {
+            emit_instruction(ctx, "%%%s = zext %s %s to %s",
+                             result_reg, src_type_str, operand_str, dst_type_str);
+        }
+    }
+
+    TypeInfo* result_type = duplicate_type_info(target_type);
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg, result_type);
+
+    free(src_type_str);
+    free(dst_type_str);
+    free(result_reg);
+    free_llvm_value(operand);
+
+    return result;
 }
 
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
@@ -1384,8 +1518,7 @@ void generate_statement(CodeGenContext* ctx, ASTNode* stmt) {
         }
         break;
     case AST_SWITCH_STMT:
-        /* For now, emit a simple stub */
-        emit_instruction(ctx, "; switch statement (not fully implemented)");
+        generate_switch_statement(ctx, stmt);
         break;
     default:
         /* Handle other statement types */
@@ -1724,43 +1857,70 @@ void generate_declaration(CodeGenContext* ctx, ASTNode* decl) {
         /* Global variable */
         symbol->is_global = 1;
         char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
-        char* default_val = get_default_value(decl->data.variable_decl.type);
+        char init_val_str[64];
+
+        /* Check for initializer */
+        if (decl->data.variable_decl.initializer &&
+            decl->data.variable_decl.initializer->type == AST_CONSTANT) {
+            /* Use constant initializer value */
+            int init_val = decl->data.variable_decl.initializer->data.constant.value.int_val;
+            snprintf(init_val_str, sizeof(init_val_str), "%d", init_val);
+        } else {
+            /* Use default value */
+            char* default_val = get_default_value(decl->data.variable_decl.type);
+            snprintf(init_val_str, sizeof(init_val_str), "%s", default_val);
+            free(default_val);
+        }
 
         emit_global_declaration(ctx, "@%s = global %s %s", symbol->name,
-                                type_str, default_val);
+                                type_str, init_val_str);
 
         add_global_symbol(ctx, symbol);
         free(type_str);
-        free(default_val);
     } else {
         /* Local variable */
-        char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
-        emit_instruction(ctx, "%%%s = alloca %s", symbol->name, type_str);
+        int array_size = decl->data.variable_decl.array_size;
 
-        if (decl->data.variable_decl.initializer) {
-            LLVMValue* init_val =
-                generate_expression(ctx, decl->data.variable_decl.initializer);
-            if (init_val) {
-                char init_operand[MAX_OPERAND_STRING_LENGTH];
-                format_operand(init_val, init_operand, sizeof(init_operand));
+        if (array_size > 0) {
+            /* Array declaration: allocate [N x type] and store as pointer to element */
+            char* element_type_str = llvm_type_to_string(decl->data.variable_decl.type);
+            emit_instruction(ctx, "%%%s = alloca [%d x %s]", symbol->name, array_size, element_type_str);
 
-                char* value_type_str = llvm_type_to_string(symbol->type);
-                TypeInfo* pointer_type_info =
-                    create_pointer_type(duplicate_type_info(symbol->type));
-                char* pointer_type_str = llvm_type_to_string(pointer_type_info);
+            /* Update symbol type to be pointer to element type (for array access) */
+            free_type_info(symbol->type);
+            symbol->type = create_pointer_type(duplicate_type_info(decl->data.variable_decl.type));
 
-                emit_instruction(ctx, "store %s %s, %s %%%s", value_type_str,
-                                 init_operand, pointer_type_str, symbol->name);
+            free(element_type_str);
+        } else {
+            /* Regular variable */
+            char* type_str = llvm_type_to_string(decl->data.variable_decl.type);
+            emit_instruction(ctx, "%%%s = alloca %s", symbol->name, type_str);
+            free(type_str);
 
-                free(value_type_str);
-                free(pointer_type_str);
-                free_type_info(pointer_type_info);
-                free_llvm_value(init_val);
+            if (decl->data.variable_decl.initializer) {
+                LLVMValue* init_val =
+                    generate_expression(ctx, decl->data.variable_decl.initializer);
+                if (init_val) {
+                    char init_operand[MAX_OPERAND_STRING_LENGTH];
+                    format_operand(init_val, init_operand, sizeof(init_operand));
+
+                    char* value_type_str = llvm_type_to_string(symbol->type);
+                    TypeInfo* pointer_type_info =
+                        create_pointer_type(duplicate_type_info(symbol->type));
+                    char* pointer_type_str = llvm_type_to_string(pointer_type_info);
+
+                    emit_instruction(ctx, "store %s %s, %s %%%s", value_type_str,
+                                     init_operand, pointer_type_str, symbol->name);
+
+                    free(value_type_str);
+                    free(pointer_type_str);
+                    free_type_info(pointer_type_info);
+                    free_llvm_value(init_val);
+                }
             }
         }
 
         add_local_symbol(ctx, symbol);
-        free(type_str);
     }
 }
 
@@ -2134,6 +2294,87 @@ void generate_for_statement(CodeGenContext* ctx, ASTNode* stmt) {
     free(body_bb);
     free(update_bb);
     free(end_bb);
+}
+
+void generate_switch_statement(CodeGenContext* ctx, ASTNode* stmt) {
+    if (!stmt || !stmt->data.switch_stmt.expression) {
+        codegen_error(ctx, "Invalid switch statement");
+        return;
+    }
+
+    emit_comment(ctx, "switch statement");
+
+    /* Generate switch expression */
+    LLVMValue* switch_val = generate_expression(ctx, stmt->data.switch_stmt.expression);
+    if (!switch_val) return;
+    switch_val = load_value_if_needed(ctx, switch_val);
+
+    char switch_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(switch_val, switch_operand, sizeof(switch_operand));
+
+    /* Create end label for break statements */
+    char* end_bb = get_next_basic_block(ctx);
+    char* saved_break = ctx->loop_break_label;
+    ctx->loop_break_label = end_bb;
+
+    /* Collect case statements from the body */
+    ASTNode* body = stmt->data.switch_stmt.body;
+    if (body && body->type == AST_COMPOUND_STMT) {
+        ASTNode* current = body->data.compound_stmt.statements;
+        ASTNode* default_stmt = NULL;
+        char* default_bb = NULL;
+
+        /* First pass: generate labels for each case */
+        while (current) {
+            if (current->type == AST_CASE_STMT) {
+                char* case_bb = get_next_basic_block(ctx);
+                int case_val = current->data.case_stmt.value->data.constant.value.int_val;
+
+                /* Compare and branch */
+                char* cmp_reg = get_next_register(ctx);
+                emit_instruction(ctx, "%%%s = icmp eq i32 %s, %d", cmp_reg, switch_operand, case_val);
+
+                char* next_check_bb = get_next_basic_block(ctx);
+                emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, case_bb, next_check_bb);
+
+                /* Case body */
+                emit_basic_block_label(ctx, case_bb);
+                generate_statement(ctx, current->data.case_stmt.statement);
+                emit_instruction(ctx, "br label %%%s", end_bb);
+
+                /* Continue checking */
+                emit_basic_block_label(ctx, next_check_bb);
+
+                free(cmp_reg);
+                free(case_bb);
+                free(next_check_bb);
+            } else if (current->type == AST_DEFAULT_STMT) {
+                default_stmt = current;
+                default_bb = get_next_basic_block(ctx);
+            }
+            current = current->next;
+        }
+
+        /* Handle default case or fall through to end */
+        if (default_stmt && default_bb) {
+            emit_instruction(ctx, "br label %%%s", default_bb);
+            emit_basic_block_label(ctx, default_bb);
+            generate_statement(ctx, default_stmt->data.case_stmt.statement);
+            emit_instruction(ctx, "br label %%%s", end_bb);
+            free(default_bb);
+        } else {
+            emit_instruction(ctx, "br label %%%s", end_bb);
+        }
+    }
+
+    /* End block */
+    emit_basic_block_label(ctx, end_bb);
+
+    /* Restore break label */
+    ctx->loop_break_label = saved_break;
+
+    free(end_bb);
+    free_llvm_value(switch_val);
 }
 
 /* Expression generation */

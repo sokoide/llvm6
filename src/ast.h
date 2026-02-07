@@ -188,6 +188,7 @@ struct ASTNode {
             ASTNode* parameters; /* for function declarators */
             int is_variadic;     /* for function declarators */
             int pointer_level;
+            int array_size;      /* for array declarators, 0 = not array */
         } identifier;
 
         struct {
@@ -236,6 +237,20 @@ struct ASTNode {
             int is_pointer_access; /* -> vs . */
         } member_access;
 
+        /* Cast expression */
+        struct {
+            TypeInfo* target_type;
+            ASTNode* operand;
+        } cast_expr;
+
+        /* Conditional expression (ternary operator) */
+        struct {
+            ASTNode* condition;
+            ASTNode* then_expr;
+            ASTNode* else_expr;
+        } conditional_expr;
+
+
         /* Statements */
         struct {
             ASTNode* statements;
@@ -264,12 +279,24 @@ struct ASTNode {
             ASTNode* expression;
         } return_stmt;
 
+        struct {
+            ASTNode* expression;   /* switch condition expression */
+            ASTNode* body;         /* switch body (compound statement with cases) */
+        } switch_stmt;
+
+        struct {
+            ASTNode* value;        /* case constant value (NULL for default) */
+            ASTNode* statement;    /* statement to execute */
+        } case_stmt;
+
+
         /* Declarations */
         struct {
             TypeInfo* type;
             char* name;
             ASTNode* initializer;
             int pointer_level;
+            int array_size;      /* for array declarations, 0 = not array */
         } variable_decl;
 
         struct {

@@ -77,7 +77,8 @@ int yyerror(const char* s);
 %type <int_val> pointer
 %type <ast_node> parameter_list parameter_declaration
 %type <param_info> parameter_type_list
-%type <ast_node> identifier_list type_name abstract_declarator
+%type <ast_node> identifier_list abstract_declarator
+%type <type_info> type_name
 %type <ast_node> direct_abstract_declarator initializer initializer_list
 %type <ast_node> statement labeled_statement compound_statement
 %type <ast_node> declaration_list statement_list expression_statement
@@ -166,7 +167,23 @@ unary_expression
 	| SIZEOF unary_expression
 		{ $$ = create_unary_op_node(UOP_SIZEOF, $2); }
 	| SIZEOF '(' type_name ')'
-		{ $$ = create_unary_op_node(UOP_SIZEOF, $3); }
+		{
+			/* Create a constant node with the size of the type */
+			int size = 4; /* Default size for most types */
+			if ($3) {
+				switch ($3->base_type) {
+					case TYPE_CHAR: size = 1; break;
+					case TYPE_SHORT: size = 2; break;
+					case TYPE_INT: size = 4; break;
+					case TYPE_LONG: size = 8; break;
+					case TYPE_FLOAT: size = 4; break;
+					case TYPE_DOUBLE: size = 8; break;
+					case TYPE_POINTER: size = 8; break; /* 64-bit pointers */
+					default: size = 4; break;
+				}
+			}
+			$$ = create_constant_node(size, TYPE_INT);
+		}
 	;
 
 unary_operator
@@ -184,7 +201,8 @@ cast_expression
 	| '(' type_name ')' cast_expression
 		{
 			$$ = create_ast_node(AST_CAST);
-			/* Set cast type and operand */
+			$$->data.cast_expr.target_type = $2;
+			$$->data.cast_expr.operand = $4;
 		}
 	;
 
@@ -280,7 +298,9 @@ conditional_expression
 	| logical_or_expression '?' expression ':' conditional_expression
 		{
 			$$ = create_ast_node(AST_CONDITIONAL);
-			/* Set conditional parts */
+			$$->data.conditional_expr.condition = $1;
+			$$->data.conditional_expr.then_expr = $3;
+			$$->data.conditional_expr.else_expr = $5;
 		}
 	;
 
@@ -394,12 +414,14 @@ init_declarator
 			} else {
 				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
 				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+				$$->data.variable_decl.array_size = $1->data.identifier.array_size;
 			}
 		}
 	| declarator '=' initializer
 		{
 			$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
 			$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+			$$->data.variable_decl.array_size = $1->data.identifier.array_size;
 		}
 	;
 
@@ -538,9 +560,20 @@ direct_declarator
 	| '(' declarator ')'
 		{ $$ = $2; }
 	| direct_declarator '[' constant_expression ']'
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			/* Extract array size from constant expression */
+			if ($3 && $3->type == AST_CONSTANT) {
+				$$->data.identifier.array_size = $3->data.constant.value.int_val;
+			} else {
+				$$->data.identifier.array_size = 0; /* Unknown size */
+			}
+		}
 	| direct_declarator '[' ']'
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			$$->data.identifier.array_size = 0; /* Empty brackets = unknown size */
+		}
 	| direct_declarator '(' parameter_type_list ')'
 		{
 			$$ = $1;
@@ -631,9 +664,9 @@ identifier_list
 
 type_name
 	: specifier_qualifier_list
-		{ $$ = NULL; }
+		{ $$ = $1; }
 	| specifier_qualifier_list abstract_declarator
-		{ $$ = NULL; }
+		{ $$ = $1; }
 	;
 
 abstract_declarator
@@ -705,12 +738,14 @@ labeled_statement
 	| CASE constant_expression ':' statement
 		{
 			$$ = create_ast_node(AST_CASE_STMT);
-			/* Set case expression and statement */
+			$$->data.case_stmt.value = $2;
+			$$->data.case_stmt.statement = $4;
 		}
 	| DEFAULT ':' statement
 		{
 			$$ = create_ast_node(AST_DEFAULT_STMT);
-			/* Set default statement */
+			$$->data.case_stmt.value = NULL;  /* no value for default */
+			$$->data.case_stmt.statement = $3;
 		}
 	;
 
@@ -785,7 +820,8 @@ selection_statement
 	| SWITCH '(' expression ')' statement
 		{
 			$$ = create_ast_node(AST_SWITCH_STMT);
-			/* Set switch expression and statement */
+			$$->data.switch_stmt.expression = $3;
+			$$->data.switch_stmt.body = $5;
 		}
 	;
 
