@@ -1,7 +1,7 @@
 # Implementation Plan: Enhanced C Features Support
 
 ## Phase 1: Logic & Control Flow (demo3)
-- [ ] Task: Create `examples/demo3.c` demonstrating `&&`, `||`, `!`, `break`, `continue`
+- [x] Task: Create `examples/demo3.c` demonstrating `&&`, `||`, `!`, `break`, `continue` (82a8c5a)
 - [ ] Task: Implement Logical Operators (`&&`, `||`, `!`)
     - [ ] Update Lexer/Parser for `&&`, `||`, `!`
     - [ ] Update AST for logical binary/unary ops
