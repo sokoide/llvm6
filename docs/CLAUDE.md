@@ -22,8 +22,10 @@ make check-deps   # Verify bison, flex, g++, llvm-config availability
 
 ### Development Workflow
 ```bash
-make run INPUT=file.c OUTPUT=file.ll    # Compile C to LLVM IR
-make run INPUT=file.c                   # Output to stdout
+make run INPUT=file.c                   # Build and run C source (Full Pipeline)
+make ir INPUT=file.c OUTPUT=file.ll     # Compile C to LLVM IR
+make bin INPUT=file.ll                  # Build Binary from LLVM IR
+make run-ir INPUT=file.ll               # Build and run from LLVM IR
 make debug && ./ccompiler -v -a file.c  # Debug mode with verbose AST output
 ```
 

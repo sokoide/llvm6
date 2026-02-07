@@ -182,24 +182,22 @@ clean-unit-tests:
 	rm -rf $(UNIT_TEST_BUILD)
 	rm -f ./unit_tests ./pointer_struct_tests
 
-# Run the compiler (requires input)
-run: $(TARGET)
+# Compile C to LLVM IR
+ir: $(TARGET)
 	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make run INPUT=file.c [OUTPUT=file.ll]"; \
-		echo "Error: INPUT file not specified"; \
-		echo "Example: make run INPUT=test.c OUTPUT=test.ll"; \
+		echo "Usage: make ir INPUT=file.c [OUTPUT=file.ll]"; \
 		exit 1; \
 	fi
 	@if [ -n "$(OUTPUT)" ]; then \
 		$(TARGET) $(INPUT) -o $(OUTPUT); \
 	else \
-		$(TARGET) $(INPUT); \
+		$(TARGET) $(INPUT) -o $(INPUT:.c=.ll); \
 	fi
 
-# Build and run LLVM IR (requires .ll file input)
-run-ir: $(TARGET)
+# Build Binary from LLVM IR
+bin:
 	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make run-ir INPUT=file.ll"; \
+		echo "Usage: make bin INPUT=file.ll"; \
 		exit 1; \
 	fi
 	@if [ ! -f "$(INPUT)" ]; then \
@@ -211,8 +209,34 @@ run-ir: $(TARGET)
 	llc -filetype=obj $(LLC_TARGET) $(INPUT) -o $(INPUT:.ll=.o)
 	@echo "Linking..."
 	$(CC) $(INPUT:.ll=.o) -o $(INPUT:.ll=)
-	@echo "Running $(INPUT:.ll=)..."
-	@$(INPUT:.ll=)
+
+# Build and run C source (C -> IR -> Bin -> Run)
+run: $(TARGET)
+	@if [ -z "$(INPUT)" ]; then \
+		echo "Usage: make run INPUT=file.c"; \
+		echo "Error: INPUT file not specified"; \
+		exit 1; \
+	fi
+	@echo "--- [1/3] Generating LLVM IR ---"
+	@$(MAKE) ir INPUT=$(INPUT) --no-print-directory
+	@echo "--- [2/3] Building Binary ---"
+	@$(MAKE) bin INPUT=$(INPUT:.c=.ll) --no-print-directory
+	@echo "--- [3/3] Executing ---"
+	@./$(INPUT:.c=); \
+	status=$$?; \
+	echo "Return code: $$status"
+
+# Build and run from LLVM IR
+run-ir:
+	@if [ -z "$(INPUT)" ]; then \
+		echo "Usage: make run-ir INPUT=file.ll"; \
+		exit 1; \
+	fi
+	@$(MAKE) bin INPUT=$(INPUT) --no-print-directory
+	@echo "--- Running $(INPUT:.ll=) ---"
+	@./$(INPUT:.ll=); \
+	status=$$?; \
+	echo "Return code: $$status"
 
 # Debug build with symbols and debug info
 debug: CXXFLAGS += -g -DDEBUG -O0
@@ -404,8 +428,10 @@ help:
 	@echo "  all            - Build the compiler (default)"
 	@echo "  clean          - Remove generated and object files"
 	@echo "  distclean      - Remove all generated files including backups and coverage"
-	@echo "  run            - Run the compiler (specify INPUT=file.c)"
-	@echo "  run-ir         - Build and run LLVM IR (specify INPUT=file.ll)"
+	@echo "  run            - Build and run C source (C -> IR -> Bin -> Run)"
+	@echo "  ir             - Generate LLVM IR from C source"
+	@echo "  bin            - Build Binary from LLVM IR"
+	@echo "  run-ir         - Build and run from LLVM IR"
 	@echo "  debug          - Build with debug symbols"
 	@echo ""
 	@echo "Testing targets:"
@@ -433,13 +459,11 @@ help:
 	@echo "  help           - Show this help"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run INPUT=program.c OUTPUT=program.ll"
+	@echo "  make run INPUT=program.c"
+	@echo "  make ir INPUT=program.c OUTPUT=program.ll"
+	@echo "  make bin INPUT=program.ll"
 	@echo "  make run-ir INPUT=program.ll"
 	@echo "  make debug && ./ccompiler -v -a program.c"
-	@echo "  make test                    # Run all tests (integration + unit)"
-	@echo "  make test-integration        # Run integration tests only"
-	@echo "  make test-unit               # Run unit tests only"
-	@echo "  make test-coverage-combined  # Complete coverage analysis"
 
 # Check dependencies
 check-deps:
@@ -475,4 +499,4 @@ cppcheck:
 		echo "WARNING: cppcheck not found. Install with: brew install cppcheck (macOS) or apt-get install cppcheck (Linux)"; \
 	fi
 
-.PHONY: all clean distclean run run-ir debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
+.PHONY: all clean distclean run run-ir ir bin debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
