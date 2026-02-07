@@ -45,6 +45,44 @@ ifneq ($(LLVM_CXXFLAGS),)
 	LIBS += $(LLVM_LIBS)
 endif
 
+# OS detection
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S),Darwin)
+	# macOS
+	PLATFORM = macos
+	ifeq ($(UNAME_M),x86_64)
+		LLC_TARGET = -mtriple=x86_64-apple-darwin
+		ARCH = x86_64
+	else ifeq ($(UNAME_M),arm64)
+		LLC_TARGET = -mtriple=arm64-apple-darwin
+		ARCH = arm64
+	else ifeq ($(UNAME_M),aarch64)
+		LLC_TARGET = -mtriple=aarch64-apple-darwin
+		ARCH = aarch64
+	else
+		LLC_TARGET = -mtriple=$(UNAME_M)-apple-darwin
+		ARCH = $(UNAME_M)
+	endif
+else
+	# Linux and others
+	PLATFORM = linux
+	ifeq ($(UNAME_M),x86_64)
+		LLC_TARGET =
+		ARCH = x86_64
+	else ifeq ($(UNAME_M),aarch64)
+		LLC_TARGET = -mtriple=aarch64-linux-gnu
+		ARCH = aarch64
+	else ifeq ($(UNAME_M),armv7l)
+		LLC_TARGET = -mtriple=arm-linux-gnueabihf
+		ARCH = arm
+	else
+		LLC_TARGET =
+		ARCH = $(UNAME_M)
+	endif
+endif
+
 # Default target
 all: $(TARGET)
 
@@ -140,8 +178,8 @@ clean-unit-tests:
 
 # Run the compiler (requires input)
 run: $(TARGET)
-	@echo "Usage: make run INPUT=file.c [OUTPUT=file.ll]"
 	@if [ -z "$(INPUT)" ]; then \
+		echo "Usage: make run INPUT=file.c [OUTPUT=file.ll]"; \
 		echo "Error: INPUT file not specified"; \
 		echo "Example: make run INPUT=test.c OUTPUT=test.ll"; \
 		exit 1; \
@@ -151,6 +189,24 @@ run: $(TARGET)
 	else \
 		$(TARGET) $(INPUT); \
 	fi
+
+# Build and run LLVM IR (requires .ll file input)
+run-ir: $(TARGET)
+	@if [ -z "$(INPUT)" ]; then \
+		echo "Usage: make run-ir INPUT=file.ll"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(INPUT)" ]; then \
+		echo "Error: File $(INPUT) not found"; \
+		exit 1; \
+	fi
+	@echo "Platform: $(PLATFORM)"
+	@echo "Compiling LLVM IR to object file..."
+	llc -filetype=obj $(LLC_TARGET) $(INPUT) -o $(INPUT:.ll=.o)
+	@echo "Linking..."
+	$(CC) $(INPUT:.ll=.o) -o $(INPUT:.ll=)
+	@echo "Running $(INPUT:.ll=)..."
+	@$(INPUT:.ll=)
 
 # Debug build with symbols and debug info
 debug: CXXFLAGS += -g -DDEBUG -O0
@@ -343,6 +399,7 @@ help:
 	@echo "  clean          - Remove generated and object files"
 	@echo "  distclean      - Remove all generated files including backups and coverage"
 	@echo "  run            - Run the compiler (specify INPUT=file.c)"
+	@echo "  run-ir         - Build and run LLVM IR (specify INPUT=file.ll)"
 	@echo "  debug          - Build with debug symbols"
 	@echo ""
 	@echo "Testing targets:"
@@ -371,6 +428,7 @@ help:
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run INPUT=program.c OUTPUT=program.ll"
+	@echo "  make run-ir INPUT=program.ll"
 	@echo "  make debug && ./ccompiler -v -a program.c"
 	@echo "  make test                    # Run all tests (integration + unit)"
 	@echo "  make test-integration        # Run integration tests only"
@@ -411,4 +469,4 @@ cppcheck:
 		echo "WARNING: cppcheck not found. Install with: brew install cppcheck (macOS) or apt-get install cppcheck (Linux)"; \
 	fi
 
-.PHONY: all clean distclean run debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
+.PHONY: all clean distclean run run-ir debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
