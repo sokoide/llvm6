@@ -6,6 +6,12 @@ ccompiler
 *.o
 *.obj
 
+# AI
+.serena/
+.claude/
+.codex/
+conductor/
+
 # Build directory (contains all generated files)
 build/
 
