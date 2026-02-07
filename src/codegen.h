@@ -34,6 +34,7 @@ struct LLVMValue {
     LLVMValueType type;
     char* name;
     TypeInfo* llvm_type;
+    int is_lvalue;
     union {
         int reg_id;
         int constant_val;

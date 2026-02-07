@@ -24,6 +24,44 @@ static char* safe_strdup(const char* str) {
 }
 
 static void emit_all_global_constants(CodeGenContext* ctx);
+static void generate_function_declaration(CodeGenContext* ctx, ASTNode* func_decl) {
+    /* Check if already declared (e.g. by runtime declarations) */
+    if (lookup_symbol(ctx, func_decl->data.function_def.name)) {
+        return;
+    }
+
+    char* ret_type_str = llvm_type_to_string(func_decl->data.function_def.return_type);
+    char params_buf[1024] = "";
+    ASTNode* param = func_decl->data.function_def.parameters;
+
+    while (param) {
+        char* param_type_str = llvm_type_to_string(param->data.variable_decl.type);
+        strcat(params_buf, param_type_str);
+        free(param_type_str);
+        if (param->next) {
+            strcat(params_buf, ", ");
+        }
+        param = param->next;
+    }
+
+    if (func_decl->data.function_def.is_variadic) {
+        if (func_decl->data.function_def.parameters) {
+            strcat(params_buf, ", ...");
+        } else {
+            strcat(params_buf, "...");
+        }
+    }
+
+    emit_global_declaration(ctx, "declare %s @%s(%s)", ret_type_str,
+                            func_decl->data.function_def.name, params_buf);
+    free(ret_type_str);
+
+    /* Add to global symbol table to allow calls */
+    Symbol* symbol = create_symbol(func_decl->data.function_def.name,
+                                   duplicate_type_info(func_decl->data.function_def.return_type));
+    symbol->is_global = 1;
+    add_global_symbol(ctx, symbol);
+}
 
 /* Context management */
 CodeGenContext* create_codegen_context(FILE* output) {
@@ -98,7 +136,7 @@ void generate_llvm_ir(CodeGenContext* ctx, ASTNode* ast) {
 
 void generate_module_header(CodeGenContext* ctx) {
     fprintf(ctx->output, "; Generated LLVM IR\n");
-    fprintf(ctx->output, "target triple = \"x86_64-unknown-linux-gnu\"\n\n");
+    fprintf(ctx->output, "target triple = \"arm64-apple-darwin\"\n\n");
 }
 
 void process_ast_nodes(CodeGenContext* ctx, ASTNode* ast) {
@@ -107,6 +145,9 @@ void process_ast_nodes(CodeGenContext* ctx, ASTNode* ast) {
         switch (current->type) {
         case AST_FUNCTION_DEF:
             generate_function_definition(ctx, current);
+            break;
+        case AST_FUNCTION_DECL:
+            generate_function_declaration(ctx, current);
             break;
         case AST_VARIABLE_DECL:
             generate_declaration(ctx, current);
@@ -125,8 +166,7 @@ LLVMValue* load_value_if_needed(CodeGenContext* ctx, LLVMValue* value) {
     if (!value)
         return NULL;
 
-    if (value->type == LLVM_VALUE_CONSTANT ||
-        value->type == LLVM_VALUE_FUNCTION)
+    if (!value->is_lvalue)
         return value;
 
     if (!value->name)
@@ -376,21 +416,19 @@ static LLVMValue* generate_arithmetic_op(CodeGenContext* ctx,
 }
 
 LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
+    BinaryOp op = expr->data.binary_op.op;
+
+    /* Handle assignment operators separately */
+    if (is_assignment_operator(op)) {
+        return generate_assignment_op(ctx, expr);
+    }
+
     /* Generate left and right operands */
     LLVMValue* left = generate_expression(ctx, expr->data.binary_op.left);
     LLVMValue* right = generate_expression(ctx, expr->data.binary_op.right);
 
     if (!left || !right) {
         return NULL;
-    }
-
-    BinaryOp op = expr->data.binary_op.op;
-
-    /* Handle assignment operators separately */
-    if (is_assignment_operator(op)) {
-        free_llvm_value(left);
-        free_llvm_value(right);
-        return generate_assignment_op(ctx, expr);
     }
 
     /* Handle pointer arithmetic before loading values */
@@ -1030,6 +1068,7 @@ LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
         LLVMValue* result =
             create_llvm_value(LLVM_VALUE_REGISTER, symbol->name,
                               duplicate_type_info(symbol->type));
+        result->is_lvalue = 1;
         return result;
     }
 
@@ -1038,6 +1077,7 @@ LLVMValue* generate_identifier(CodeGenContext* ctx, ASTNode* identifier) {
         LLVMValue* result =
             create_llvm_value(LLVM_VALUE_GLOBAL, symbol->name,
                               duplicate_type_info(symbol->type));
+        result->is_lvalue = 1;
         return result;
     }
 
@@ -1112,6 +1152,18 @@ LLVMValue* generate_string_literal(CodeGenContext* ctx, ASTNode* string_lit) {
                 processed[j++] = str[i];
                 break;
             }
+        } else if (str[i] == '\n') {
+            processed[j++] = '\\';
+            processed[j++] = '0';
+            processed[j++] = 'A';
+        } else if (str[i] == '\r') {
+            processed[j++] = '\\';
+            processed[j++] = '0';
+            processed[j++] = 'D';
+        } else if (str[i] == '\t') {
+            processed[j++] = '\\';
+            processed[j++] = '0';
+            processed[j++] = '9';
         } else if (str[i] != '"') {
             /* Skip surrounding quotes */
             processed[j++] = str[i];
@@ -1127,6 +1179,8 @@ LLVMValue* generate_string_literal(CodeGenContext* ctx, ASTNode* string_lit) {
         if (str[i] == '\\' && i + 1 < length) {
             byte_length++;
             i++;
+        } else if (str[i] == '\n' || str[i] == '\r' || str[i] == '\t') {
+            byte_length++;
         } else {
             byte_length++;
         }
@@ -1417,10 +1471,35 @@ void emit_comment(CodeGenContext* ctx, const char* comment) {
 /* Runtime support */
 void generate_runtime_declarations(CodeGenContext* ctx) {
     emit_comment(ctx, "Runtime function declarations");
+
+    /* Register printf */
     emit_global_declaration(ctx, "declare i32 @printf(i8*, ...)");
+    Symbol* printf_sym =
+        create_symbol("printf", create_type_info(TYPE_INT));
+    printf_sym->is_global = 1;
+    add_global_symbol(ctx, printf_sym);
+
+    /* Register scanf */
     emit_global_declaration(ctx, "declare i32 @scanf(i8*, ...)");
+    Symbol* scanf_sym =
+        create_symbol("scanf", create_type_info(TYPE_INT));
+    scanf_sym->is_global = 1;
+    add_global_symbol(ctx, scanf_sym);
+
+    /* Register malloc */
     emit_global_declaration(ctx, "declare i8* @malloc(i64)");
+    Symbol* malloc_sym = create_symbol(
+        "malloc", create_pointer_type(create_type_info(TYPE_CHAR)));
+    malloc_sym->is_global = 1;
+    add_global_symbol(ctx, malloc_sym);
+
+    /* Register free */
     emit_global_declaration(ctx, "declare void @free(i8*)");
+    Symbol* free_sym =
+        create_symbol("free", create_type_info(TYPE_VOID));
+    free_sym->is_global = 1;
+    add_global_symbol(ctx, free_sym);
+
     fprintf(ctx->output, "\n");
 }
 
@@ -1511,6 +1590,7 @@ LLVMValue* create_llvm_value(LLVMValueType type, const char* name,
     value->type = type;
     value->name = safe_strdup(name);
     value->llvm_type = llvm_type;
+    value->is_lvalue = 0;
     return value;
 }
 
@@ -1776,6 +1856,8 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
             return NULL;
         }
 
+        arg_val = load_value_if_needed(ctx, arg_val);
+
         if (arg_count > 0) {
             strcat(arg_list, ", ");
         }
@@ -1805,7 +1887,13 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
     LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
                                           create_type_info(TYPE_INT));
 
-    emit_instruction(ctx, "%%%s = call i32 @%s(%s)", result_reg, func_name,
+    /* Build function prototype for the call instruction (needed for variadic calls) */
+    char proto[1024] = "";
+    if (strcmp(func_name, "printf") == 0 || strcmp(func_name, "scanf") == 0) {
+        snprintf(proto, sizeof(proto), "(i8*, ...) ");
+    }
+
+    emit_instruction(ctx, "%%%s = call i32 %s@%s(%s)", result->name, proto, func_name,
                      arg_list);
 
     /* Free the original result_reg since create_llvm_value duplicated it */

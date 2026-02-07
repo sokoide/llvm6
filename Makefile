@@ -19,8 +19,8 @@ SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/me
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Unit test files
-UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp
-UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o
+UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp $(UNIT_TEST_DIR)/test_external_decl.cpp
+UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o $(UNIT_TEST_BUILD)/test_external_decl.o
 
 # Pointer/Struct test files
 POINTER_STRUCT_TEST_SOURCES = $(UNIT_TEST_DIR)/test_pointers_simple.cpp $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp $(UNIT_TEST_DIR)/test_pointer_struct_runner.cpp
@@ -144,6 +144,9 @@ $(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp src/ast.h src
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 $(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp src/main.cpp | $(UNIT_TEST_BUILD)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+
+$(UNIT_TEST_BUILD)/test_external_decl.o: $(UNIT_TEST_DIR)/test_external_decl.cpp src/ast.h src/codegen.h | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Pointer/Struct test object files

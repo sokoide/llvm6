@@ -124,13 +124,26 @@ ASTNode* create_variable_decl_node(TypeInfo* type, const char* name,
     return node;
 }
 
+ASTNode* create_function_decl_node(TypeInfo* return_type, const char* name,
+                                   ASTNode* parameters, int is_variadic) {
+    ASTNode* node = create_ast_node(AST_FUNCTION_DECL);
+    node->data.function_def.return_type = return_type;
+    node->data.function_def.name = safe_strdup(name);
+    node->data.function_def.parameters = parameters;
+    node->data.function_def.body = NULL;
+    node->data.function_def.is_variadic = is_variadic;
+    return node;
+}
+
 ASTNode* create_function_def_node(TypeInfo* return_type, const char* name,
-                                  ASTNode* parameters, ASTNode* body) {
+                                  ASTNode* parameters, ASTNode* body,
+                                  int is_variadic) {
     ASTNode* node = create_ast_node(AST_FUNCTION_DEF);
     node->data.function_def.return_type = return_type;
     node->data.function_def.name = safe_strdup(name);
     node->data.function_def.parameters = parameters;
     node->data.function_def.body = body;
+    node->data.function_def.is_variadic = is_variadic;
     return node;
 }
 
@@ -250,11 +263,14 @@ void free_ast_node(ASTNode* node) {
         free(node->data.variable_decl.name);
         free_ast_node(node->data.variable_decl.initializer);
         break;
+    case AST_FUNCTION_DECL:
     case AST_FUNCTION_DEF:
         free_type_info(node->data.function_def.return_type);
         free(node->data.function_def.name);
         free_ast_node(node->data.function_def.parameters);
-        free_ast_node(node->data.function_def.body);
+        if (node->type == AST_FUNCTION_DEF) {
+            free_ast_node(node->data.function_def.body);
+        }
         break;
     default:
         /* Handle other node types as needed */
@@ -339,6 +355,8 @@ static const char* node_type_to_string(ASTNodeType type) {
         return "RETURN_STMT";
     case AST_VARIABLE_DECL:
         return "VARIABLE_DECL";
+    case AST_FUNCTION_DECL:
+        return "FUNCTION_DECL";
     case AST_FUNCTION_DEF:
         return "FUNCTION_DEF";
     case AST_COMPOUND_STMT:
@@ -412,6 +430,7 @@ void print_ast(ASTNode* node, int indent) {
     case AST_VARIABLE_DECL:
         printf(" (%s)", node->data.variable_decl.name);
         break;
+    case AST_FUNCTION_DECL:
     case AST_FUNCTION_DEF:
         printf(" (%s)", node->data.function_def.name);
         break;

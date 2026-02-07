@@ -46,6 +46,10 @@ int yyerror(const char* s);
     TypeInfo* type_info;
     BinaryOp binary_op;
     UnaryOp unary_op;
+    struct {
+        ASTNode* head;
+        int is_variadic;
+    } param_info;
 }
 
 %token <str_val> IDENTIFIER CONSTANT STRING_LITERAL SIZEOF
@@ -67,10 +71,12 @@ int yyerror(const char* s);
 %type <ast_node> equality_expression and_expression exclusive_or_expression
 %type <ast_node> inclusive_or_expression logical_and_expression logical_or_expression
 %type <ast_node> conditional_expression assignment_expression expression
-%type <ast_node> constant_expression declaration declaration_specifiers
+%type <ast_node> constant_expression declaration
 %type <ast_node> init_declarator_list init_declarator declarator
-%type <ast_node> direct_declarator pointer type_qualifier_list
-%type <ast_node> parameter_type_list parameter_list parameter_declaration
+%type <ast_node> direct_declarator type_qualifier_list
+%type <int_val> pointer
+%type <ast_node> parameter_list parameter_declaration
+%type <param_info> parameter_type_list
 %type <ast_node> identifier_list type_name abstract_declarator
 %type <ast_node> direct_abstract_declarator initializer initializer_list
 %type <ast_node> statement labeled_statement compound_statement
@@ -78,11 +84,11 @@ int yyerror(const char* s);
 %type <ast_node> selection_statement iteration_statement jump_statement
 %type <ast_node> translation_unit external_declaration function_definition
 %type <ast_node> struct_or_union_specifier struct_declaration_list
-%type <ast_node> struct_declaration specifier_qualifier_list
+%type <ast_node> struct_declaration
 %type <ast_node> struct_declarator_list struct_declarator enum_specifier
 %type <ast_node> enumerator_list enumerator
 
-%type <type_info> storage_class_specifier type_specifier type_qualifier
+%type <type_info> storage_class_specifier type_specifier type_qualifier declaration_specifiers specifier_qualifier_list
 %type <binary_op> assignment_operator
 %type <unary_op> unary_operator
 %type <str_val> struct_or_union
@@ -313,24 +319,58 @@ constant_expression
 
 declaration
 	: declaration_specifiers ';'
-		{ $$ = NULL; /* Empty declaration */ }
+		{ $$ = NULL; /* Empty declaration */ free_type_info($1); }
 	| declaration_specifiers init_declarator_list ';'
-		{ $$ = $2; /* Return declarator list */ }
+		{
+			$$ = $2;
+			ASTNode* curr = $$;
+			while (curr) {
+				TypeInfo* full_type = duplicate_type_info($1);
+				int p_level = 0;
+				if (curr->type == AST_VARIABLE_DECL) {
+					p_level = curr->data.variable_decl.pointer_level;
+					for (int i = 0; i < p_level; i++) {
+						full_type = create_pointer_type(full_type);
+					}
+					curr->data.variable_decl.type = full_type;
+				} else if (curr->type == AST_FUNCTION_DECL) {
+					p_level = curr->data.function_def.pointer_level;
+					for (int i = 0; i < p_level; i++) {
+						full_type = create_pointer_type(full_type);
+					}
+					curr->data.function_def.return_type = full_type;
+				}
+				curr = curr->next;
+			}
+			free_type_info($1);
+		}
 	;
 
 declaration_specifiers
 	: storage_class_specifier
-		{ $$ = NULL; /* Handle storage class */ }
+		{ $$ = $1; }
 	| storage_class_specifier declaration_specifiers
-		{ $$ = $2; }
+		{
+			$$ = $2;
+			$$->storage_class = $1->storage_class;
+			free_type_info($1);
+		}
 	| type_specifier
-		{ $$ = NULL; /* Handle type specifier */ }
+		{ $$ = $1; }
 	| type_specifier declaration_specifiers
-		{ $$ = $2; }
+		{
+			$$ = $2;
+			$$->base_type = $1->base_type;
+			free_type_info($1);
+		}
 	| type_qualifier
-		{ $$ = NULL; /* Handle type qualifier */ }
+		{ $$ = $1; }
 	| type_qualifier declaration_specifiers
-		{ $$ = $2; }
+		{
+			$$ = $2;
+			$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
+			free_type_info($1);
+		}
 	;
 
 init_declarator_list
@@ -347,17 +387,28 @@ init_declarator_list
 
 init_declarator
 	: declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL); }
+		{
+			if ($1->data.identifier.parameters) {
+				$$ = create_function_decl_node(NULL, $1->data.identifier.name, $1->data.identifier.parameters, $1->data.identifier.is_variadic);
+				$$->data.function_def.pointer_level = $1->data.identifier.pointer_level;
+			} else {
+				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
+				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+			}
+		}
 	| declarator '=' initializer
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $1->data.identifier.name, $3); }
+		{
+			$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
+			$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+		}
 	;
 
 storage_class_specifier
-	: TYPEDEF   { $$ = NULL; }
-	| EXTERN    { $$ = NULL; }
-	| STATIC    { $$ = NULL; }
-	| AUTO      { $$ = NULL; }
-	| REGISTER  { $$ = NULL; }
+	: TYPEDEF   { $$ = create_type_info(TYPE_VOID); $$->storage_class = STORAGE_TYPEDEF; }
+	| EXTERN    { $$ = create_type_info(TYPE_VOID); $$->storage_class = STORAGE_EXTERN; }
+	| STATIC    { $$ = create_type_info(TYPE_VOID); $$->storage_class = STORAGE_STATIC; }
+	| AUTO      { $$ = create_type_info(TYPE_VOID); $$->storage_class = STORAGE_AUTO; }
+	| REGISTER  { $$ = create_type_info(TYPE_VOID); $$->storage_class = STORAGE_REGISTER; }
 	;
 
 type_specifier
@@ -403,13 +454,21 @@ struct_declaration
 
 specifier_qualifier_list
 	: type_specifier specifier_qualifier_list
-		{ $$ = NULL; /* Combine type specifiers */ }
+		{
+			$$ = $2;
+			$$->base_type = $1->base_type;
+			free_type_info($1);
+		}
 	| type_specifier
-		{ $$ = NULL; /* Single type specifier */ }
+		{ $$ = $1; }
 	| type_qualifier specifier_qualifier_list
-		{ $$ = NULL; /* Type qualifier with list */ }
+		{
+			$$ = $2;
+			$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
+			free_type_info($1);
+		}
 	| type_qualifier
-		{ $$ = NULL; /* Single type qualifier */ }
+		{ $$ = $1; }
 	;
 
 struct_declarator_list
@@ -452,20 +511,30 @@ enumerator
 	;
 
 type_qualifier
-	: CONST     { $$ = NULL; }
-	| VOLATILE  { $$ = NULL; }
+	: CONST     { $$ = create_type_info(TYPE_VOID); $$->qualifiers = QUAL_CONST; }
+	| VOLATILE  { $$ = create_type_info(TYPE_VOID); $$->qualifiers = QUAL_VOLATILE; }
 	;
 
 declarator
 	: pointer direct_declarator
-		{ $$ = $2; }
+		{
+			$$ = $2;
+			$$->data.identifier.pointer_level = $1;
+		}
 	| direct_declarator
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			$$->data.identifier.pointer_level = 0;
+		}
 	;
 
 direct_declarator
 	: IDENTIFIER
-		{ $$ = create_identifier_node($1); }
+		{
+			$$ = create_identifier_node($1);
+			$$->data.identifier.is_variadic = 0;
+			$$->data.identifier.pointer_level = 0;
+		}
 	| '(' declarator ')'
 		{ $$ = $2; }
 	| direct_declarator '[' constant_expression ']'
@@ -475,23 +544,30 @@ direct_declarator
 	| direct_declarator '(' parameter_type_list ')'
 		{
 			$$ = $1;
-			$$->data.identifier.parameters = $3;
+			$$->data.identifier.parameters = $3.head;
+			$$->data.identifier.is_variadic = $3.is_variadic;
 		}
 	| direct_declarator '(' identifier_list ')'
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			$$->data.identifier.is_variadic = 0;
+		}
 	| direct_declarator '(' ')'
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			$$->data.identifier.is_variadic = 0;
+		}
 	;
 
 pointer
 	: '*'
-		{ $$ = NULL; }
+		{ $$ = 1; }
 	| '*' type_qualifier_list
-		{ $$ = NULL; }
+		{ $$ = 1; }
 	| '*' pointer
-		{ $$ = NULL; }
+		{ $$ = $2 + 1; }
 	| '*' type_qualifier_list pointer
-		{ $$ = NULL; }
+		{ $$ = $3 + 1; }
 	;
 
 type_qualifier_list
@@ -503,9 +579,15 @@ type_qualifier_list
 
 parameter_type_list
 	: parameter_list
-		{ $$ = $1; }
+		{
+			$$.head = $1;
+			$$.is_variadic = 0;
+		}
 	| parameter_list ',' ELLIPSIS
-		{ $$ = $1; }
+		{
+			$$.head = $1;
+			$$.is_variadic = 1;
+		}
 	;
 
 parameter_list
@@ -522,11 +604,17 @@ parameter_list
 
 parameter_declaration
 	: declaration_specifiers declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), $2->data.identifier.name, NULL); }
+		{
+			TypeInfo* full_type = $1;
+			for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
+				full_type = create_pointer_type(full_type);
+			}
+			$$ = create_variable_decl_node(full_type, $2->data.identifier.name, NULL);
+		}
 	| declaration_specifiers abstract_declarator
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), (char*)"param", NULL); }
+		{ $$ = create_variable_decl_node($1, (char*)"param", NULL); }
 	| declaration_specifiers
-		{ $$ = create_variable_decl_node(create_type_info(TYPE_INT), (char*)"param", NULL); }
+		{ $$ = create_variable_decl_node($1, (char*)"param", NULL); }
 	;
 
 identifier_list
@@ -571,7 +659,7 @@ direct_abstract_declarator
 	| '(' ')'
 		{ $$ = NULL; }
 	| '(' parameter_type_list ')'
-		{ $$ = $2; }
+		{ $$ = $2.head; }
 	| direct_abstract_declarator '(' ')'
 		{ $$ = $1; }
 	| direct_abstract_declarator '(' parameter_type_list ')'
@@ -757,17 +845,17 @@ external_declaration
 
 function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, $3, $4); }
+		{ $$ = create_function_def_node($1, $2->data.identifier.name, $3, $4, $2->data.identifier.is_variadic); }
 	| declaration_specifiers declarator compound_statement
 		{
 			/* Check if declarator has parameters (modern C syntax) */
 			ASTNode* params = ($2->data.identifier.parameters) ? $2->data.identifier.parameters : NULL;
-			$$ = create_function_def_node(create_type_info(TYPE_INT), $2->data.identifier.name, params, $3);
+			$$ = create_function_def_node($1, $2->data.identifier.name, params, $3, $2->data.identifier.is_variadic);
 		}
 	| declarator declaration_list compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3, $1->data.identifier.is_variadic); }
 	| declarator compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL, $2); }
+		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL, $2, $1->data.identifier.is_variadic); }
 	;
 
 %%

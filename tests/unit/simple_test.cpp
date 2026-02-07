@@ -121,7 +121,7 @@ static void reset_compiler_options() {
 static ASTNode* build_stub_function(const char* name, int return_value) {
     ASTNode* return_stmt = create_return_stmt_node(create_constant_node(return_value, TYPE_INT));
     ASTNode* body = create_compound_stmt_node(return_stmt);
-    ASTNode* function_def = create_function_def_node(create_type_info(TYPE_INT), literal(name), NULL, body);
+    ASTNode* function_def = create_function_def_node(create_type_info(TYPE_INT), literal(name), NULL, body, 0);
     function_def->next = NULL;
     return function_def;
 }
@@ -864,7 +864,7 @@ TEST(codegen_generate_full_program) {
     ASTNode* function_body = create_compound_stmt_node(local_decl);
     ASTNode* function_def = create_function_def_node(create_type_info(TYPE_INT),
                                                      literal("exercise_features"), NULL,
-                                                     function_body);
+                                                     function_body, 0);
 
     global_decl->next = function_def;
     function_def->next = NULL;

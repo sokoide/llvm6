@@ -186,6 +186,8 @@ struct ASTNode {
             char* name;
             Symbol* symbol;
             ASTNode* parameters; /* for function declarators */
+            int is_variadic;     /* for function declarators */
+            int pointer_level;
         } identifier;
 
         struct {
@@ -267,6 +269,7 @@ struct ASTNode {
             TypeInfo* type;
             char* name;
             ASTNode* initializer;
+            int pointer_level;
         } variable_decl;
 
         struct {
@@ -274,6 +277,8 @@ struct ASTNode {
             char* name;
             ASTNode* parameters;
             ASTNode* body;
+            int is_variadic;
+            int pointer_level;
         } function_def;
 
         struct {
@@ -315,8 +320,11 @@ ASTNode* create_for_stmt_node(ASTNode* init, ASTNode* condition,
 ASTNode* create_return_stmt_node(ASTNode* expression);
 ASTNode* create_variable_decl_node(TypeInfo* type, const char* name,
                                    ASTNode* initializer);
+ASTNode* create_function_decl_node(TypeInfo* return_type, const char* name,
+                                   ASTNode* parameters, int is_variadic);
 ASTNode* create_function_def_node(TypeInfo* return_type, const char* name,
-                                  ASTNode* parameters, ASTNode* body);
+                                  ASTNode* parameters, ASTNode* body,
+                                  int is_variadic);
 
 TypeInfo* create_type_info(DataType base_type);
 
