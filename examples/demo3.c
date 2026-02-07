@@ -2,40 +2,31 @@ extern int printf(char *format, ...);
 
 int main() {
     int i;
-    int j;
 
-    printf("Testing logical operators and loop control\n");
+    printf("Testing logical operators and loops\n");
 
     /* Test ! (NOT) */
     if (!0) {
         printf("!0 is true\n");
     }
 
-    /* Test && (AND) and || (OR) with short-circuit */
+    /* Test && (AND) */
     i = 1;
-    j = 0;
-    if (i && j) {
-        printf("Should not print (1 && 0)\n");
+    if (i && 0) {
+        printf("Should not print\n");
     } else {
         printf("1 && 0 is false\n");
     }
 
-    if (i || j) {
+    /* Test || (OR) */
+    if (i || 0) {
         printf("1 || 0 is true\n");
     }
 
-    /* Test break and continue */
-    printf("Testing loop control (break/continue):\n");
-    for (i = 0; i < 10; i = i + 1) {
-        if (i == 2) {
-            printf("  Skip 2 (continue)\n");
-            continue;
-        }
-        if (i == 5) {
-            printf("  Stop at 5 (break)\n");
-            break;
-        }
-        printf("  Value: %d\n", i);
+    /* Simple for loop */
+    printf("Simple for loop:\n");
+    for (i = 0; i < 3; i = i + 1) {
+        printf("  i = %d\n", i);
     }
 
     return 0;

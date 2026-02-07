@@ -274,6 +274,10 @@ LLVMValue* generate_expression(CodeGenContext* ctx, ASTNode* expr) {
         return generate_binary_op(ctx, expr);
     case AST_UNARY_OP:
         return generate_unary_op(ctx, expr);
+    case AST_CONDITIONAL:
+        return generate_conditional_op(ctx, expr);
+    case AST_CAST:
+        return generate_cast(ctx, expr);
     case AST_FUNCTION_CALL:
         return generate_function_call(ctx, expr);
     case AST_ARRAY_ACCESS:
@@ -421,6 +425,70 @@ LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr) {
     /* Handle assignment operators separately */
     if (is_assignment_operator(op)) {
         return generate_assignment_op(ctx, expr);
+    }
+
+    /* Handle logical AND/OR with short-circuit evaluation */
+    if (op == OP_AND || op == OP_OR) {
+        char* cond_bb = get_next_basic_block(ctx);
+        char* second_bb = get_next_basic_block(ctx);
+        char* end_bb = get_next_basic_block(ctx);
+
+        /* First, jump to condition block */
+        emit_instruction(ctx, "br label %%%s", cond_bb);
+
+        /* Condition block - evaluate left side */
+        emit_basic_block_label(ctx, cond_bb);
+        LLVMValue* left = generate_expression(ctx, expr->data.binary_op.left);
+        left = load_value_if_needed(ctx, left);
+        char left_op[MAX_OPERAND_STRING_LENGTH];
+        format_operand(left, left_op, sizeof(left_op));
+
+        char* cond_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cond_reg, left_op);
+
+        if (op == OP_AND) {
+            emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cond_reg,
+                             second_bb, end_bb);
+        } else {
+            emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cond_reg,
+                             end_bb, second_bb);
+        }
+
+        emit_basic_block_label(ctx, second_bb);
+        LLVMValue* right = generate_expression(ctx, expr->data.binary_op.right);
+        right = load_value_if_needed(ctx, right);
+        char right_op[MAX_OPERAND_STRING_LENGTH];
+        format_operand(right, right_op, sizeof(right_op));
+
+        char* cond_right_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cond_right_reg,
+                         right_op);
+        emit_instruction(ctx, "br label %%%s", end_bb);
+
+        emit_basic_block_label(ctx, end_bb);
+        /* result = phi [ left_bool, cond_bb ], [ right_bool, second_bb ] */
+        char* result_reg = get_next_register(ctx);
+        char* left_bool_val = (op == OP_AND) ? (char*)"false" : (char*)"true";
+        emit_instruction(ctx,
+                         "%%%s = phi i1 [ %s, %%%s ], [ %%%s, %%%s ]",
+                         result_reg, left_bool_val, cond_bb,
+                         cond_right_reg, second_bb);
+
+        char* final_result_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = zext i1 %%%s to i32", final_result_reg,
+                         result_reg);
+
+        free_llvm_value(left);
+        free_llvm_value(right);
+        free(cond_bb);
+        free(second_bb);
+        free(end_bb);
+        free(cond_reg);
+        free(cond_right_reg);
+        free(result_reg);
+
+        return create_llvm_value(LLVM_VALUE_REGISTER, final_result_reg,
+                                 create_type_info(TYPE_INT));
     }
 
     /* Generate left and right operands */
@@ -632,12 +700,21 @@ static LLVMValue* generate_arithmetic_unary_op(CodeGenContext* ctx,
         }
         break;
     case UOP_NOT:
+        /* Generate icmp which returns i1, then zext to i32 */
         if (operand->type == LLVM_VALUE_CONSTANT) {
             emit_instruction(ctx, "%%%s = icmp eq i32 %s, 0", result->name,
                              operand_str);
         } else {
             emit_instruction(ctx, "%%%s = icmp eq i32 %%%s, 0", result->name,
                              operand_str);
+        }
+        /* Convert i1 result to i32 */
+        {
+            char* zext_reg = get_next_register(ctx);
+            emit_instruction(ctx, "%%%s = zext i1 %%%s to i32", zext_reg, result->name);
+            /* Free the old name and update to use the zexted value */
+            free(result->name);
+            result->name = zext_reg;
         }
         break;
     case UOP_BITNOT:
@@ -962,6 +1039,74 @@ LLVMValue* generate_pointer_arithmetic_op(CodeGenContext* ctx, BinaryOp op,
     return NULL;
 }
 
+LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr) {
+    /* Generate condition */
+    LLVMValue* condition = generate_expression(ctx, expr->data.binary_op.left);
+    if (!condition)
+        return NULL;
+
+    condition = load_value_if_needed(ctx, condition);
+    char cond_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(condition, cond_operand, sizeof(cond_operand));
+
+    /* Create basic blocks */
+    char* then_bb = get_next_basic_block(ctx);
+    char* else_bb = get_next_basic_block(ctx);
+    char* end_bb = get_next_basic_block(ctx);
+    char* result_reg = get_next_register(ctx);
+
+    /* Evaluate condition and branch */
+    char* cmp_reg = get_next_register(ctx);
+    emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+    emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_bb, else_bb);
+
+    /* Then block - compute true value */
+    emit_basic_block_label(ctx, then_bb);
+    /* Get the then value from binary_op.right */
+    /* Note: AST_CONDITIONAL structure needs to be properly set up in parser */
+    /* For now, assume the structure is similar to if statement */
+    LLVMValue* then_val = generate_expression(ctx, expr->data.binary_op.right);
+    then_val = load_value_if_needed(ctx, then_val);
+    char then_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(then_val, then_operand, sizeof(then_operand));
+    emit_instruction(ctx, "br label %%%s", end_bb);
+
+    /* Else block - compute false value */
+    emit_basic_block_label(ctx, else_bb);
+    /* For conditional operator, we'd need access to the third operand */
+    /* This is a simplified implementation */
+    char else_operand[MAX_OPERAND_STRING_LENGTH];
+    snprintf(else_operand, sizeof(else_operand), "0");
+    emit_instruction(ctx, "br label %%%s", end_bb);
+
+    /* End block - phi node */
+    emit_basic_block_label(ctx, end_bb);
+    emit_instruction(ctx, "%%%s = phi i32 [ %s, %%%s ], [ %s, %%%s ]",
+                     result_reg, then_operand, then_bb, else_operand, else_bb);
+
+    free_llvm_value(condition);
+    free_llvm_value(then_val);
+    free(then_bb);
+    free(else_bb);
+    free(end_bb);
+    free(cmp_reg);
+    free(result_reg);
+
+    return create_llvm_value(LLVM_VALUE_REGISTER, result_reg, create_type_info(TYPE_INT));
+}
+
+LLVMValue* generate_cast(CodeGenContext* ctx, ASTNode* expr) {
+    /* For now, implement basic numeric casts */
+    LLVMValue* operand = generate_expression(ctx, expr->data.binary_op.left);
+    if (!operand)
+        return NULL;
+
+    operand = load_value_if_needed(ctx, operand);
+
+    /* Default: no-op cast */
+    return operand;
+}
+
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr) {
     LLVMValue* operand = generate_expression(ctx, expr->data.unary_op.operand);
     if (!operand)
@@ -1228,6 +1373,20 @@ void generate_statement(CodeGenContext* ctx, ASTNode* stmt) {
     case AST_RETURN_STMT:
         generate_return_statement(ctx, stmt);
         break;
+    case AST_BREAK_STMT:
+        if (ctx->loop_break_label) {
+            emit_instruction(ctx, "br label %%%s", ctx->loop_break_label);
+        }
+        break;
+    case AST_CONTINUE_STMT:
+        if (ctx->loop_continue_label) {
+            emit_instruction(ctx, "br label %%%s", ctx->loop_continue_label);
+        }
+        break;
+    case AST_SWITCH_STMT:
+        /* For now, emit a simple stub */
+        emit_instruction(ctx, "; switch statement (not fully implemented)");
+        break;
     default:
         /* Handle other statement types */
         break;
@@ -1236,9 +1395,22 @@ void generate_statement(CodeGenContext* ctx, ASTNode* stmt) {
 
 void generate_compound_statement(CodeGenContext* ctx, ASTNode* stmt) {
     ASTNode* current = stmt->data.compound_stmt.statements;
+    ASTNode* last = NULL;
     while (current) {
         generate_statement(ctx, current);
+        last = current;
         current = current->next;
+    }
+
+    /* If we're in a loop body and the block didn't end with a terminal instruction,
+     * fall through to continue/update block */
+    if (ctx->loop_continue_label && last) {
+        /* Check if last statement is a terminal statement (break/continue/return) */
+        if (last->type != AST_BREAK_STMT &&
+            last->type != AST_CONTINUE_STMT &&
+            last->type != AST_RETURN_STMT) {
+            emit_instruction(ctx, "br label %%%s", ctx->loop_continue_label);
+        }
     }
 }
 
@@ -1280,6 +1452,11 @@ void generate_expression_statement(CodeGenContext* ctx, ASTNode* stmt) {
             free_llvm_value(result);
         }
     }
+
+    /* If we're in a loop body and this is not a terminal statement,
+     * fall through to continue/update block.
+     * Note: We only generate this if the last instruction wasn't already a br */
+    /* For simplicity, skip this - let loop constructs handle fallthrough */
     /* If expression is NULL, it's an empty statement (just semicolon) - nothing
      * to generate */
 }
@@ -1466,6 +1643,10 @@ void emit_function_header(CodeGenContext* ctx, const char* format, ...) {
 
 void emit_comment(CodeGenContext* ctx, const char* comment) {
     fprintf(ctx->output, "; %s\n", comment);
+}
+
+void emit_basic_block_label(CodeGenContext* ctx, const char* label) {
+    fprintf(ctx->output, "%s:\n", label);
 }
 
 /* Runtime support */
@@ -1777,34 +1958,55 @@ void generate_if_statement(CodeGenContext* ctx, ASTNode* stmt) {
     if (!condition)
         return;
 
+    condition = load_value_if_needed(ctx, condition);
+
     /* Create basic blocks */
     char* then_label = get_next_basic_block(ctx);
     char* else_label = get_next_basic_block(ctx);
     char* end_label = get_next_basic_block(ctx);
 
+    /* Convert condition to i1 for branch */
+    char cond_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(condition, cond_operand, sizeof(cond_operand));
+
+    char* cmp_reg = get_next_register(ctx);
+    emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+
     /* Branch based on condition */
-    if (condition->type == LLVM_VALUE_CONSTANT) {
-        emit_instruction(ctx, "br i1 %d, label %%%s, label %%%s",
-                         condition->data.constant_val, then_label, else_label);
-    } else {
-        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s",
-                         condition->name, then_label, else_label);
-    }
+    emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, then_label, else_label);
+    free(cmp_reg);
 
     /* Then block */
-    emit_instruction(ctx, "%s:", then_label);
+    emit_basic_block_label(ctx, then_label);
     generate_statement(ctx, stmt->data.if_stmt.then_stmt);
-    emit_instruction(ctx, "br label %%%s", end_label);
+    /* Generate fallthrough br if then_stmt is not a compound statement */
+    /* Compound statements in loops handle their own fallthrough */
+    if (stmt->data.if_stmt.then_stmt->type != AST_COMPOUND_STMT) {
+        emit_instruction(ctx, "br label %%%s", end_label);
+    } else if (!ctx->loop_continue_label) {
+        /* Compound statement not in a loop - need fallthrough */
+        emit_instruction(ctx, "br label %%%s", end_label);
+    }
 
     /* Else block */
-    emit_instruction(ctx, "%s:", else_label);
     if (stmt->data.if_stmt.else_stmt) {
+        emit_basic_block_label(ctx, else_label);
         generate_statement(ctx, stmt->data.if_stmt.else_stmt);
+        /* Generate fallthrough br if else_stmt is not a compound statement */
+        if (stmt->data.if_stmt.else_stmt->type != AST_COMPOUND_STMT) {
+            emit_instruction(ctx, "br label %%%s", end_label);
+        } else if (!ctx->loop_continue_label) {
+            /* Compound statement not in a loop - need fallthrough */
+            emit_instruction(ctx, "br label %%%s", end_label);
+        }
+    } else {
+        /* No else clause - else_label just falls through to end_label */
+        emit_basic_block_label(ctx, else_label);
+        emit_instruction(ctx, "br label %%%s", end_label);
     }
-    emit_instruction(ctx, "br label %%%s", end_label);
 
     /* End block */
-    emit_instruction(ctx, "%s:", end_label);
+    emit_basic_block_label(ctx, end_label);
 
     free_llvm_value(condition);
     free(then_label);
@@ -1814,22 +2016,124 @@ void generate_if_statement(CodeGenContext* ctx, ASTNode* stmt) {
 
 void generate_while_statement(CodeGenContext* ctx, ASTNode* stmt) {
     emit_instruction(ctx, "; while statement");
-    generate_expression(ctx, stmt->data.while_stmt.condition);
+
+    char* cond_bb = get_next_basic_block(ctx);
+    char* body_bb = get_next_basic_block(ctx);
+    char* end_bb = get_next_basic_block(ctx);
+
+    /* Save previous loop labels */
+    char* saved_break = ctx->loop_break_label;
+    char* saved_continue = ctx->loop_continue_label;
+
+    /* Set current loop labels */
+    ctx->loop_break_label = end_bb;
+    ctx->loop_continue_label = cond_bb;
+
+    /* Jump to condition */
+    emit_instruction(ctx, "br label %%%s", cond_bb);
+
+    /* Condition block */
+    emit_basic_block_label(ctx, cond_bb);
+    LLVMValue* condition = generate_expression(ctx, stmt->data.while_stmt.condition);
+    if (condition) {
+        condition = load_value_if_needed(ctx, condition);
+        char cond_operand[MAX_OPERAND_STRING_LENGTH];
+        format_operand(condition, cond_operand, sizeof(cond_operand));
+
+        char* cmp_reg = get_next_register(ctx);
+        emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+        emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
+        free(cmp_reg);
+        free_llvm_value(condition);
+    }
+
+    /* Body block */
+    emit_basic_block_label(ctx, body_bb);
     generate_statement(ctx, stmt->data.while_stmt.body);
+    emit_instruction(ctx, "br label %%%s", cond_bb);
+
+    /* End block */
+    emit_basic_block_label(ctx, end_bb);
+
+    /* Restore loop labels */
+    ctx->loop_break_label = saved_break;
+    ctx->loop_continue_label = saved_continue;
+
+    free(cond_bb);
+    free(body_bb);
+    free(end_bb);
 }
 
 void generate_for_statement(CodeGenContext* ctx, ASTNode* stmt) {
     emit_instruction(ctx, "; for statement");
+
+    char* cond_bb = get_next_basic_block(ctx);
+    char* body_bb = get_next_basic_block(ctx);
+    char* update_bb = get_next_basic_block(ctx);
+    char* end_bb = get_next_basic_block(ctx);
+
+    /* Save previous loop labels */
+    char* saved_break = ctx->loop_break_label;
+    char* saved_continue = ctx->loop_continue_label;
+
+    /* Set current loop labels */
+    ctx->loop_break_label = end_bb;
+    ctx->loop_continue_label = update_bb;
+
+    /* Init */
     if (stmt->data.for_stmt.init) {
         generate_expression(ctx, stmt->data.for_stmt.init);
     }
+
+    /* Jump to condition */
+    emit_instruction(ctx, "br label %%%s", cond_bb);
+
+    /* Condition block */
+    emit_basic_block_label(ctx, cond_bb);
     if (stmt->data.for_stmt.condition) {
-        generate_expression(ctx, stmt->data.for_stmt.condition);
+        LLVMValue* condition = generate_expression(ctx, stmt->data.for_stmt.condition);
+        if (condition) {
+            condition = load_value_if_needed(ctx, condition);
+            char cond_operand[MAX_OPERAND_STRING_LENGTH];
+            format_operand(condition, cond_operand, sizeof(cond_operand));
+
+            char* cmp_reg = get_next_register(ctx);
+            emit_instruction(ctx, "%%%s = icmp ne i32 %s, 0", cmp_reg, cond_operand);
+            emit_instruction(ctx, "br i1 %%%s, label %%%s, label %%%s", cmp_reg, body_bb, end_bb);
+            free(cmp_reg);
+            free_llvm_value(condition);
+        }
+    } else {
+        /* No condition = always true */
+        emit_instruction(ctx, "br label %%%s", body_bb);
     }
+
+    /* Body block - must be a compound statement for proper control flow */
+    emit_basic_block_label(ctx, body_bb);
     generate_statement(ctx, stmt->data.for_stmt.body);
+    /* Don't generate fallthrough br - compound statement handles it */
+
+    /* Update block (implicit fallthrough target for normal statements) */
+    emit_basic_block_label(ctx, update_bb);
     if (stmt->data.for_stmt.update) {
-        generate_expression(ctx, stmt->data.for_stmt.update);
+        LLVMValue* update_result = generate_expression(ctx, stmt->data.for_stmt.update);
+        if (update_result) {
+            free_llvm_value(update_result);
+        }
     }
+    emit_instruction(ctx, "br label %%%s", cond_bb);
+
+    /* End block */
+    emit_basic_block_label(ctx, end_bb);
+
+    /* Restore loop labels */
+    ctx->loop_break_label = saved_break;
+    ctx->loop_continue_label = saved_continue;
+
+    free(cond_bb);
+    free(body_bb);
+    free(update_bb);
+    free(end_bb);
 }
 
 /* Expression generation */
@@ -1902,15 +2206,86 @@ LLVMValue* generate_function_call(CodeGenContext* ctx, ASTNode* call) {
 }
 
 LLVMValue* generate_array_access(CodeGenContext* ctx, ASTNode* access) {
-    (void)access; /* Suppress unused parameter warning */
-    char* result_reg = get_next_register(ctx);
-    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, result_reg,
-                                          create_type_info(TYPE_INT));
+    if (!access || access->type != AST_ARRAY_ACCESS) {
+        codegen_error(ctx, "Invalid array access node");
+        return NULL;
+    }
 
-    emit_instruction(ctx, "%%%s = load i32, i32* %%array_ptr", result_reg);
+    ASTNode* array_node = access->data.array_access.array;
+    ASTNode* index_node = access->data.array_access.index;
 
-    /* Free the original result_reg since create_llvm_value duplicated it */
-    free(result_reg);
+    if (!array_node || !index_node) {
+        codegen_error(ctx, "Invalid array access: missing array or index");
+        return NULL;
+    }
+
+    /* Generate array (should evaluate to pointer) */
+    LLVMValue* array_value = generate_expression(ctx, array_node);
+    if (!array_value) {
+        codegen_error(ctx, "Failed to generate array expression");
+        return NULL;
+    }
+
+    /* Generate index */
+    LLVMValue* index_value = generate_expression(ctx, index_node);
+    if (!index_value) {
+        codegen_error(ctx, "Failed to generate index expression");
+        free_llvm_value(array_value);
+        return NULL;
+    }
+
+    index_value = load_value_if_needed(ctx, index_value);
+
+    /* Get element pointer */
+    char* gep_reg = get_next_register(ctx);
+    char array_operand[MAX_OPERAND_STRING_LENGTH];
+    char index_operand[MAX_OPERAND_STRING_LENGTH];
+    format_operand(array_value, array_operand, sizeof(array_operand));
+    format_operand(index_value, index_operand, sizeof(index_operand));
+
+    /* Determine the element type from the array's pointer type */
+    TypeInfo* element_type = NULL;
+    if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_POINTER) {
+        element_type = array_value->llvm_type->return_type;
+    } else if (array_value->llvm_type && array_value->llvm_type->base_type == TYPE_ARRAY) {
+        element_type = array_value->llvm_type->return_type;
+    }
+
+    if (!element_type) {
+        /* Default to int */
+        element_type = create_type_info(TYPE_INT);
+    }
+
+    char* element_type_str = llvm_type_to_string(element_type);
+    char* pointer_type_str = llvm_type_to_string(array_value->llvm_type);
+
+    emit_instruction(ctx, "%%%s = getelementptr %s, %s %s, i32 %s",
+                     gep_reg, element_type_str, pointer_type_str,
+                     array_operand, index_operand);
+
+    free(element_type_str);
+    free(pointer_type_str);
+
+    /* Load the value */
+    char* load_reg = get_next_register(ctx);
+    TypeInfo* loaded_type = duplicate_type_info(element_type);
+    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, load_reg, loaded_type);
+
+    char* loaded_type_str = llvm_type_to_string(element_type);
+    TypeInfo* ptr_to_element = create_pointer_type(duplicate_type_info(element_type));
+    char* ptr_type_str = llvm_type_to_string(ptr_to_element);
+
+    emit_instruction(ctx, "%%%s = load %s, %s %%%s", load_reg,
+                     loaded_type_str, ptr_type_str, gep_reg);
+
+    free(loaded_type_str);
+    free(ptr_type_str);
+    free_type_info(ptr_to_element);
+    free(gep_reg);
+    free(load_reg);
+    free_llvm_value(array_value);
+    free_llvm_value(index_value);
+
     return result;
 }
 

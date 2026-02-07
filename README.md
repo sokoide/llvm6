@@ -87,6 +87,9 @@ C Source → Lexer → Tokens → Parser → AST → Code Generator → LLVM IR
 make              # Build compiler
 make clean        # Remove generated files
 make debug        # Build with debug symbols
+make run INPUT=p.c # Build and run C source (Full Pipeline)
+make ir INPUT=p.c  # Generate LLVM IR from C source
+make bin INPUT=p.ll # Build Binary from LLVM IR
 make test         # Run comprehensive test suite
 make test-quick   # Run basic functionality tests
 make validate     # Validate generated LLVM IR syntax

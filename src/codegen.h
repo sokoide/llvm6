@@ -64,6 +64,11 @@ struct CodeGenContext {
     BasicBlock* current_bb;
     BasicBlock* bb_list;
 
+    /* Loop labels for break/continue */
+    char* loop_break_label;
+    char* loop_continue_label;
+    int needs_fallthrough;  /* Flag to track if fallthrough is needed */
+
     /* Function information */
     char* current_function_name;
     TypeInfo* current_function_return_type;
@@ -89,6 +94,8 @@ void generate_function_definition(CodeGenContext* ctx, ASTNode* func_def);
 
 /* Expression generation */
 LLVMValue* generate_binary_op(CodeGenContext* ctx, ASTNode* expr);
+LLVMValue* generate_conditional_op(CodeGenContext* ctx, ASTNode* expr);
+LLVMValue* generate_cast(CodeGenContext* ctx, ASTNode* expr);
 
 LLVMValue* generate_assignment_op(CodeGenContext* ctx, ASTNode* expr);
 LLVMValue* generate_unary_op(CodeGenContext* ctx, ASTNode* expr);

@@ -18,6 +18,7 @@ build/
 # Test outputs
 tests/output/
 tests/reports/
+tests/fixtures/*.ll
 unit_tests
 
 # Coverage files
