@@ -7,5 +7,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 - [ ] **Track: Standard Library Integration - Basic I/O Support**
   *Link: [./tracks/stdlib_io_20260207/](./tracks/stdlib_io_20260207/)*
 
-- [ ] **Track: Fix LLVM IR Global Constant Placement Bug**
+- [x] **Track: Fix LLVM IR Global Constant Placement Bug**
   *Link: [./tracks/fix_ir_placement_20260207/](./tracks/fix_ir_placement_20260207/)*
