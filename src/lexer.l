@@ -1,5 +1,6 @@
 %{
 #include "ast.h"
+#include "symbols.h"
 #include "grammar_c.tab.h"
 
 /* Safe string duplication with error handling */
@@ -16,6 +17,7 @@ static int safe_strdup_to_yylval(const char* str) {
 void count(void);
 void comment(void);
 int check_type(void);
+void skip_attribute(void);
 
 int column = 0;
 %}
@@ -67,6 +69,21 @@ IS			(u|U|l|L)*
 "void"			{ count(); return(VOID); }
 "volatile"		{ count(); return(VOLATILE); }
 "while"			{ count(); return(WHILE); }
+
+"__attribute__"		{ count(); skip_attribute(); }
+"__extension__"		{ count(); }
+"__restrict"		{ count(); return(CONST); /* Hack: treat as const */ }
+"restrict"		{ count(); return(CONST); }
+"__inline"		{ count(); }
+"inline"		{ count(); }
+"_Nullable"		{ count(); }
+"_Nonnull"		{ count(); }
+"__unused"		{ count(); }
+"__deprecated"		{ count(); }
+"__dead2"		{ count(); }
+"__pure2"		{ count(); }
+"__asm"			{ count(); skip_attribute(); }
+"__asm__"		{ count(); skip_attribute(); }
 
 {L}({L}|{D})*		{ count(); safe_strdup_to_yylval(yytext); return(check_type()); }
 
@@ -163,5 +180,21 @@ void count(void)
 
 int check_type(void)
 {
+	Symbol* sym = symbol_lookup(yytext);
+	if (sym && sym->type && sym->type->storage_class == STORAGE_TYPEDEF) {
+		return(TYPE_NAME);
+	}
 	return(IDENTIFIER);
+}
+
+void skip_attribute(void) {
+    int c;
+    int parens = 0;
+    while ((c = input()) != 0) {
+        if (c == '(') parens++;
+        else if (c == ')') {
+            parens--;
+            if (parens <= 0) break;
+        }
+    }
 }

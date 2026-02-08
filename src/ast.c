@@ -72,6 +72,26 @@ int parse_constant_value(const char* s) {
     return (int)strtol(s, NULL, 0);
 }
 
+int evaluate_constant_node(ASTNode* node) {
+    if (!node) return 0;
+    if (node->type == AST_CONSTANT) {
+        return node->data.constant.value.int_val;
+    }
+    /* Simple constant folding for enums if needed */
+    if (node->type == AST_BINARY_OP) {
+        int left = evaluate_constant_node(node->data.binary_op.left);
+        int right = evaluate_constant_node(node->data.binary_op.right);
+        switch (node->data.binary_op.op) {
+            case OP_ADD: return left + right;
+            case OP_SUB: return left - right;
+            case OP_MUL: return left * right;
+            case OP_DIV: return right != 0 ? left / right : 0;
+            default: return 0;
+        }
+    }
+    return 0;
+}
+
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right) {
     ASTNode* node = create_ast_node(AST_BINARY_OP);
     node->data.binary_op.op = op;

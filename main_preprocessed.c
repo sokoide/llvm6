@@ -1225,6 +1225,8 @@ struct Symbol {
     int is_global;
     int is_parameter;
     int is_array;
+    int is_enum_constant;
+    int enum_value;
     struct Symbol* next;
 };
 struct ASTNode {
@@ -1351,6 +1353,7 @@ ASTNode* create_identifier_node(const char* name);
 ASTNode* create_constant_node(int value, DataType type);
 ASTNode* create_string_literal_node(const char* string);
 int parse_constant_value(const char* s);
+int evaluate_constant_node(ASTNode* node);
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right);
 ASTNode* create_unary_op_node(UnaryOp op, ASTNode* operand);
 ASTNode* create_function_call_node(ASTNode* function, ASTNode* arguments);
@@ -1377,9 +1380,9 @@ void symbol_add_global(Symbol* symbol);
 void symbol_add_local(Symbol* symbol);
 Symbol* symbol_lookup(const char* name);
 void symbol_clear_locals(void);
+void symbol_clear_all(void);
 extern Symbol* g_global_symbols;
 extern Symbol* g_local_symbols;
-typedef struct CodeGenContext CodeGenContext;
 typedef struct LLVMValue LLVMValue;
 typedef enum {
     LLVM_VALUE_REGISTER,
@@ -1396,18 +1399,18 @@ struct LLVMValue {
         int constant_val;
     } data;
 };
-struct CodeGenContext {
+typedef struct {
     FILE* output;
     int next_reg_id;
     int next_bb_id;
     char* current_function_name;
     TypeInfo* current_function_return_type;
-    char* loop_break_label;
-    char* loop_continue_label;
-};
+} CodeGenContext;
 void codegen_init(FILE* output);
 void codegen_run(ASTNode* ast);
 void codegen_cleanup(void);
+LLVMValue* gen_expression(ASTNode* expr);
+void gen_statement(ASTNode* stmt);
 
 extern int yyparse(void);
 extern FILE* yyin;

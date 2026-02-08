@@ -9,14 +9,14 @@
 - [x] Task: Verify expression support with existing `examples/` and new test fixtures
 - [x] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
-## Phase 2: Type System Enhancements (Typedef and Enum)
+## Phase 2: Type System Enhancements (Typedef and Enum) [checkpoint: ca31008]
 データ構造の定義に不可欠な `typedef` と `enum` を実装する。
 
-- [ ] Task: Implement `enum` parsing and value assignment in symbol table
-- [ ] Task: Implement `typedef` support (type aliasing)
-- [ ] Task: Handle basic system types (size_t, FILE, etc.) through simple headers
-- [ ] Task: Verify type aliasing logic with complex declaration tests
-- [ ] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
+- [x] Task: Implement `enum` parsing and value assignment in symbol table
+- [x] Task: Implement `typedef` support (type aliasing)
+- [x] Task: Handle basic system types (size_t, FILE, etc.) through simple headers
+- [x] Task: Verify type aliasing logic with complex declaration tests
+- [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
 ## Phase 3: Structural Support (Struct and Union)
 ASTやシンボルテーブルの内部構造を扱えるよう、構造体と共用体を完全にサポートする。

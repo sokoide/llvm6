@@ -10,6 +10,7 @@ extern ASTNode* program_ast;
 
 int main(int argc, char* argv[]) {
     mem_init();
+    symbol_init_builtins();
     codegen_init(stdout);
 
     if (argc > 1) {

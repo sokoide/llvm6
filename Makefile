@@ -16,7 +16,7 @@ C_SOURCES = src/main.c src/memory.c src/error.c src/ast.c src/symbols.c src/code
 C_OBJECTS = $(BUILD_DIR)/c_main.o $(BUILD_DIR)/c_memory.o $(BUILD_DIR)/c_error.o $(BUILD_DIR)/c_ast.o $(BUILD_DIR)/c_symbols.o $(BUILD_DIR)/c_codegen.o $(BUILD_DIR)/c_grammar.o $(BUILD_DIR)/c_lex.o
 
 # Unit tests
-C_TEST_BINARIES = $(BUILD_DIR)/test_memory_c $(BUILD_DIR)/test_error_c $(BUILD_DIR)/test_ast_c
+C_TEST_BINARIES = $(BUILD_DIR)/test_memory_c $(BUILD_DIR)/test_error_c $(BUILD_DIR)/test_ast_c $(BUILD_DIR)/test_enum_c $(BUILD_DIR)/test_typedef_c
 
 # Default target
 all: $(TARGET)
@@ -105,7 +105,13 @@ $(BUILD_DIR)/test_memory_c: tests/unit/test_memory.c src/memory.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_error_c: tests/unit/test_error.c src/error.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Isrc -o $@ $^
 
-$(BUILD_DIR)/test_ast_c: tests/unit/test_ast_c.c src/ast.c src/memory.c src/error.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c | $(BUILD_DIR)
+$(BUILD_DIR)/test_ast_c: tests/unit/test_ast_c.c src/ast.c src/symbols.c src/memory.c src/error.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_enum_c: tests/unit/test_enum.c src/ast.c src/symbols.c src/memory.c src/error.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_typedef_c: tests/unit/test_typedef.c src/ast.c src/symbols.c src/memory.c src/error.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -o $@ $^
 
 clean:

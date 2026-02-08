@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ast.h"
+#include "symbols.h"
 
 extern int yylex(void);
 extern char* yytext;
@@ -11,6 +12,7 @@ extern FILE* yyin;
 
 /* Global variables */
 ASTNode* program_ast = NULL;
+int g_next_enum_value = 0;
 
 /* Error handling */
 int yyerror(const char* s);
@@ -37,11 +39,11 @@ int yyerror(const char* s);
     } param_info;
 }
 
-%token <str_val> IDENTIFIER CONSTANT STRING_LITERAL SIZEOF
+%token <str_val> IDENTIFIER CONSTANT STRING_LITERAL SIZEOF TYPE_NAME
 %token PTR_OP INC_OP DEC_OP LEFT_OP RIGHT_OP LE_OP GE_OP EQ_OP NE_OP
 %token AND_OP OR_OP MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN ADD_ASSIGN
 %token SUB_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN AND_ASSIGN
-%token XOR_ASSIGN OR_ASSIGN TYPE_NAME
+%token XOR_ASSIGN OR_ASSIGN
 
 %token TYPEDEF EXTERN STATIC AUTO REGISTER
 %token CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
@@ -339,6 +341,13 @@ declaration
 						full_type = create_pointer_type(full_type);
 					}
 					curr->data.variable_decl.type = full_type;
+
+					if ($1 && $1->storage_class == STORAGE_TYPEDEF) {
+						Symbol* sym = create_symbol(curr->data.variable_decl.name, full_type);
+						sym->is_global = (g_local_symbols == NULL);
+						if (sym->is_global) symbol_add_global(sym);
+						else symbol_add_local(sym);
+					}
 				} else if (curr->type == AST_FUNCTION_DECL) {
 					p_level = curr->data.function_def.pointer_level;
 					for (int i = 0; i < p_level; i++) {
@@ -357,25 +366,41 @@ declaration_specifiers
 		{ $$ = $1; }
 	| storage_class_specifier declaration_specifiers
 		{
-			$$ = $2;
-			$$->storage_class = $1->storage_class;
-			free_type_info($1);
+			if ($2 == NULL) {
+				$$ = $1;
+			} else {
+				$$ = $2;
+				$$->storage_class = $1->storage_class;
+				free_type_info($1);
+			}
 		}
 	| type_specifier
 		{ $$ = $1; }
 	| type_specifier declaration_specifiers
 		{
-			$$ = $2;
-			$$->base_type = $1->base_type;
-			free_type_info($1);
+			if ($2 == NULL) {
+				$$ = $1;
+			} else {
+				$$ = $2;
+				if ($1) {
+					$$->base_type = $1->base_type;
+					free_type_info($1);
+				}
+			}
 		}
 	| type_qualifier
 		{ $$ = $1; }
 	| type_qualifier declaration_specifiers
 		{
-			$$ = $2;
-			$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
-			free_type_info($1);
+			if ($2 == NULL) {
+				$$ = $1;
+			} else {
+				$$ = $2;
+				if ($1) {
+					$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
+					free_type_info($1);
+				}
+			}
 		}
 	;
 
@@ -432,7 +457,15 @@ type_specifier
 	| UNSIGNED  { $$ = create_type_info(TYPE_UNSIGNED); }
 	| struct_or_union_specifier { $$ = NULL; }
 	| enum_specifier            { $$ = NULL; }
-	| TYPE_NAME                 { $$ = NULL; }
+	| TYPE_NAME
+        {
+            Symbol* sym = symbol_lookup($1);
+            if (sym && sym->type) {
+                $$ = duplicate_type_info(sym->type);
+                $$->storage_class = STORAGE_NONE;
+            }
+            else $$ = create_type_info(TYPE_INT);
+        }
 	;
 
 struct_or_union_specifier
@@ -497,9 +530,9 @@ struct_declarator
 	;
 
 enum_specifier
-	: ENUM '{' enumerator_list '}'
+	: ENUM '{' { g_next_enum_value = 0; } enumerator_list '}'
 		{ $$ = NULL; }
-	| ENUM IDENTIFIER '{' enumerator_list '}'
+	| ENUM IDENTIFIER '{' { g_next_enum_value = 0; } enumerator_list '}'
 		{ $$ = NULL; }
 	| ENUM IDENTIFIER
 		{ $$ = NULL; }
@@ -514,9 +547,25 @@ enumerator_list
 
 enumerator
 	: IDENTIFIER
-		{ $$ = create_identifier_node($1); }
+		{
+			Symbol* sym = create_symbol($1, create_type_info(TYPE_INT));
+			sym->is_enum_constant = 1;
+			sym->enum_value = g_next_enum_value++;
+			sym->is_global = 1;
+			symbol_add_global(sym);
+			$$ = create_identifier_node($1);
+		}
 	| IDENTIFIER '=' constant_expression
-		{ $$ = create_identifier_node($1); }
+		{
+			int val = evaluate_constant_node($3);
+			g_next_enum_value = val;
+			Symbol* sym = create_symbol($1, create_type_info(TYPE_INT));
+			sym->is_enum_constant = 1;
+			sym->enum_value = g_next_enum_value++;
+			sym->is_global = 1;
+			symbol_add_global(sym);
+			$$ = create_identifier_node($1);
+		}
 	;
 
 type_qualifier
@@ -926,15 +975,7 @@ function_definition
 %%
 
 int yyerror(const char* s) {
-
 	fflush(stdout);
-
 	printf("\nError near '%s' at column %d: %s\n", yytext, column, s);
-
 	return 0;
-
 }
-
-
-
-

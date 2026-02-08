@@ -143,6 +143,8 @@ struct Symbol {
     int is_global;
     int is_parameter; /* true if this is a function parameter */
     int is_array;     /* true if this is an array */
+    int is_enum_constant;
+    int enum_value;
     struct Symbol* next;
 };
 
@@ -311,6 +313,7 @@ ASTNode* create_identifier_node(const char* name);
 ASTNode* create_constant_node(int value, DataType type);
 ASTNode* create_string_literal_node(const char* string);
 int parse_constant_value(const char* s);
+int evaluate_constant_node(ASTNode* node);
 ASTNode* create_binary_op_node(BinaryOp op, ASTNode* left, ASTNode* right);
 ASTNode* create_unary_op_node(UnaryOp op, ASTNode* operand);
 ASTNode* create_function_call_node(ASTNode* function, ASTNode* arguments);
