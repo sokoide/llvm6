@@ -17,5 +17,6 @@ void symbol_init_builtins(void);
 extern Symbol* g_global_symbols;
 extern Symbol* g_local_symbols;
 extern Symbol* g_tags;
+extern TypeInfo* g_all_structs;
 
 #endif /* SYMBOLS_H */

@@ -3,6 +3,7 @@
 Symbol* g_global_symbols = NULL;
 Symbol* g_local_symbols = NULL;
 Symbol* g_tags = NULL;
+TypeInfo* g_all_structs = NULL;
 
 void symbol_add_global(Symbol* symbol) {
     if (!symbol) return;

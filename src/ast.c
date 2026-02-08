@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "symbols.h"
 #include "memory.h"
 #include "error.h"
 #include "common.h"
@@ -21,6 +22,7 @@ ASTNode* create_identifier_node(const char* name) {
     node->data.identifier.parameters = NULL;
     node->data.identifier.is_variadic = 0;
     node->data.identifier.pointer_level = 0;
+    node->data.identifier.is_function = 0;
     node->data.identifier.is_function_pointer = 0;
     node->data.identifier.array_dimensions = NULL;
     return node;
@@ -358,6 +360,11 @@ TypeInfo* create_struct_type(const char* tag, int is_union) {
         sprintf(buf, "anon.%d", g_anon_type_id++);
         type->struct_name = arena_strdup(g_compiler_arena, buf);
     }
+    
+    /* Add to global structs list for codegen emission */
+    type->next = g_all_structs;
+    g_all_structs = type;
+    
     return type;
 }
 
@@ -404,7 +411,9 @@ void struct_finish_layout(TypeInfo* type) {
 }
 
 Symbol* struct_lookup_member(TypeInfo* type, const char* name) {
-    if (!type || (type->base_type != TYPE_STRUCT && type->base_type != TYPE_UNION)) return NULL;
+    if (!type || (type->base_type != TYPE_STRUCT && type->base_type != TYPE_UNION)) {
+        return NULL;
+    }
     Symbol* m = type->struct_members;
     while (m) {
         if (strcmp(m->name, name) == 0) return m;

@@ -165,6 +165,7 @@ struct ASTNode {
             ASTNode* parameters; /* for function declarators */
             int is_variadic;     /* for function declarators */
             int pointer_level;
+            int is_function;
             int is_function_pointer;
             struct ASTNode* array_dimensions; /* for array declarators */
         } identifier;

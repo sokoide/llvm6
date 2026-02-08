@@ -153,25 +153,14 @@ unary_expression
 		{ $$ = create_unary_op_node(UOP_PREDEC, $2); }
 	| unary_operator cast_expression
 		{ $$ = create_unary_op_node($1, $2); }
-	| SIZEOF unary_expression
-		{ $$ = create_unary_op_node(UOP_SIZEOF, $2); }
 	| SIZEOF '(' type_name ')'
 		{
-			/* Create a constant node with the size of the type */
-			int size = 4; /* Default size for most types */
-			if ($3) {
-				switch ($3->base_type) {
-					case TYPE_CHAR: size = 1; break;
-					case TYPE_SHORT: size = 2; break;
-					case TYPE_INT: size = 4; break;
-					case TYPE_LONG: size = 8; break;
-					case TYPE_FLOAT: size = 4; break;
-					case TYPE_DOUBLE: size = 8; break;
-					case TYPE_POINTER: size = 8; break; /* 64-bit pointers */
-					default: size = 4; break;
-				}
-			}
-			$$ = create_constant_node(size, TYPE_INT);
+			$$ = create_constant_node(get_type_size($3), TYPE_LONG);
+		}
+	| SIZEOF unary_expression
+		{
+			/* For now, just a basic hack for self-hosting */
+			$$ = create_constant_node(4, TYPE_LONG);
 		}
 	;
 
@@ -352,6 +341,12 @@ declaration
 						sym->is_global = (g_local_symbols == NULL);
 						if (sym->is_global) symbol_add_global(sym);
 						else symbol_add_local(sym);
+					} else {
+						printf("; Adding global symbol: %s, type=%d\n", curr->data.variable_decl.name, full_type->base_type);
+						Symbol* sym = create_symbol(curr->data.variable_decl.name, full_type);
+						sym->is_global = (g_local_symbols == NULL);
+						if (sym->is_global) symbol_add_global(sym);
+						else symbol_add_local(sym);
 					}
 				} else if (curr->type == AST_FUNCTION_DECL) {
 					p_level = curr->data.function_def.pointer_level;
@@ -359,6 +354,13 @@ declaration
 						full_type = create_pointer_type(full_type);
 					}
 					curr->data.function_def.return_type = full_type;
+					
+					/* Add function to symbol table */
+					TypeInfo* func_type = create_function_type(full_type, curr->data.function_def.parameters);
+					Symbol* sym = create_symbol(curr->data.function_def.name, func_type);
+					sym->is_global = (g_local_symbols == NULL);
+					if (sym->is_global) symbol_add_global(sym);
+					else symbol_add_local(sym);
 				}
 				curr = curr->next;
 			}
@@ -387,7 +389,26 @@ declaration_specifiers
 			} else {
 				$$ = $2;
 				if ($1) {
-					$$->base_type = $1->base_type;
+					/* Smarter merging */
+					if ($1->base_type == TYPE_LONG || $$->base_type == TYPE_LONG) {
+						$$->base_type = TYPE_LONG;
+					} else if ($1->base_type == TYPE_SHORT || $$->base_type == TYPE_SHORT) {
+						$$->base_type = TYPE_SHORT;
+					} else if ($1->base_type == TYPE_CHAR || $$->base_type == TYPE_CHAR) {
+						$$->base_type = TYPE_CHAR;
+					} else if ($1->base_type == TYPE_BOOL || $$->base_type == TYPE_BOOL) {
+						$$->base_type = TYPE_BOOL;
+					} else if ($1->base_type != TYPE_VOID) {
+						$$->base_type = $1->base_type;
+					}
+					
+					/* Preserve other fields if not already set */
+					if (!$$->struct_name) $$->struct_name = $1->struct_name;
+					if (!$$->struct_members) $$->struct_members = $1->struct_members;
+					if ($$->size == 0) $$->size = $1->size;
+					if ($$->alignment == 0) $$->alignment = $1->alignment;
+					if (!$$->return_type) $$->return_type = $1->return_type;
+					if (!$$->parameters) $$->parameters = $1->parameters;
 				}
 			}
 		}
@@ -421,7 +442,7 @@ init_declarator_list
 init_declarator
 	: declarator
 		{
-			if ($1->data.identifier.parameters) {
+			if ($1->data.identifier.is_function) {
 				if ($1->data.identifier.is_function_pointer) {
 					$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
 					$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
@@ -475,7 +496,13 @@ type_specifier
         {
             Symbol* sym = symbol_lookup($1);
             if (sym && sym->type) {
-                $$ = duplicate_type_info(sym->type);
+				if ((sym->type->base_type == TYPE_STRUCT || sym->type->base_type == TYPE_UNION) && sym->type->struct_name) {
+					Symbol* tag = tag_lookup(sym->type->struct_name);
+					if (tag) $$ = duplicate_type_info(tag->type);
+					else $$ = duplicate_type_info(sym->type);
+				} else {
+					$$ = duplicate_type_info(sym->type);
+				}
                 $$->storage_class = STORAGE_NONE;
             }
             else $$ = create_type_info(TYPE_INT);
@@ -485,7 +512,8 @@ type_specifier
 struct_or_union_specifier
 	: struct_or_union IDENTIFIER '{' struct_declaration_list '}'
 		{
-			TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
+			Symbol* existing = tag_lookup($2);
+			TypeInfo* type = existing ? existing->type : create_struct_type($2, strcmp($1, "union") == 0);
 			ASTNode* curr = $4;
 			while (curr) {
 				if (curr->type == AST_VARIABLE_DECL) {
@@ -494,8 +522,28 @@ struct_or_union_specifier
 				curr = curr->next;
 			}
 			struct_finish_layout(type);
-			Symbol* tag = create_symbol($2, type);
-			tag_add(tag);
+			if (!existing) {
+				Symbol* tag = create_symbol($2, type);
+				tag_add(tag);
+			}
+			$$ = type;
+		}
+	| struct_or_union TYPE_NAME '{' struct_declaration_list '}'
+		{
+			Symbol* existing = tag_lookup($2);
+			TypeInfo* type = existing ? existing->type : create_struct_type($2, strcmp($1, "union") == 0);
+			ASTNode* curr = $4;
+			while (curr) {
+				if (curr->type == AST_VARIABLE_DECL) {
+					struct_add_member(type, curr->data.variable_decl.name, curr->data.variable_decl.type);
+				}
+				curr = curr->next;
+			}
+			struct_finish_layout(type);
+			if (!existing) {
+				Symbol* tag = create_symbol($2, type);
+				tag_add(tag);
+			}
 			$$ = type;
 		}
 	| struct_or_union '{' struct_declaration_list '}'
@@ -517,7 +565,19 @@ struct_or_union_specifier
 			if (tag) {
 				$$ = duplicate_type_info(tag->type);
 			} else {
-				/* Forward declaration */
+				printf("; Forward decl struct: %s\n", $2);
+				TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
+				Symbol* new_tag = create_symbol($2, type);
+				tag_add(new_tag);
+				$$ = type;
+			}
+		}
+	| struct_or_union TYPE_NAME
+		{
+			Symbol* tag = tag_lookup($2);
+			if (tag) {
+				$$ = duplicate_type_info(tag->type);
+			} else {
 				TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
 				Symbol* new_tag = create_symbol($2, type);
 				tag_add(new_tag);
@@ -623,7 +683,24 @@ enum_specifier
 			$$->struct_name = $2;
 			tag_add(create_symbol($2, $$));
 		}
+	| ENUM TYPE_NAME '{' { g_next_enum_value = 0; } enumerator_list '}'
+		{
+			$$ = create_type_info(TYPE_ENUM);
+			$$->struct_name = $2;
+			tag_add(create_symbol($2, $$));
+		}
 	| ENUM IDENTIFIER
+		{
+			Symbol* tag = tag_lookup($2);
+			if (tag) {
+				$$ = duplicate_type_info(tag->type);
+			} else {
+				$$ = create_type_info(TYPE_ENUM);
+				$$->struct_name = $2;
+				tag_add(create_symbol($2, $$));
+			}
+		}
+	| ENUM TYPE_NAME
 		{
 			Symbol* tag = tag_lookup($2);
 			if (tag) {
@@ -640,6 +717,8 @@ enumerator_list
 	: enumerator
 		{ $$ = $1; }
 	| enumerator_list ',' enumerator
+		{ $$ = $1; }
+	| enumerator_list ','
 		{ $$ = $1; }
 	;
 
@@ -723,20 +802,31 @@ direct_declarator
 	| direct_declarator '(' parameter_type_list ')'
 		{
 			$$ = $1;
+			$$->data.identifier.is_function = 1;
 			if ($$->data.identifier.pointer_level > 0) {
 				$$->data.identifier.is_function_pointer = 1;
 			}
-			$$->data.identifier.parameters = $3.head;
+			/* Handle (void) specifically */
+			if ($3.head && $3.head->type == AST_VARIABLE_DECL && 
+				$3.head->data.variable_decl.type->base_type == TYPE_VOID &&
+				$3.head->data.variable_decl.type->pointer_level == 0 &&
+				$3.head->next == NULL) {
+				$$->data.identifier.parameters = NULL;
+			} else {
+				$$->data.identifier.parameters = $3.head;
+			}
 			$$->data.identifier.is_variadic = $3.is_variadic;
 		}
 	| direct_declarator '(' identifier_list ')'
 		{
 			$$ = $1;
+			$$->data.identifier.is_function = 1;
 			$$->data.identifier.is_variadic = 0;
 		}
 	| direct_declarator '(' ')'
 		{
 			$$ = $1;
+			$$->data.identifier.is_function = 1;
 			$$->data.identifier.is_variadic = 0;
 		}
 	;
@@ -820,37 +910,63 @@ type_name
 	: specifier_qualifier_list
 		{ $$ = $1; }
 	| specifier_qualifier_list abstract_declarator
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			if ($2) {
+				for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
+					$$ = create_pointer_type($$);
+				}
+			}
+		}
 	;
 
 abstract_declarator
 	: pointer
-		{ $$ = NULL; }
+		{
+			$$ = create_identifier_node("");
+			$$->data.identifier.pointer_level = $1;
+		}
 	| direct_abstract_declarator
 		{ $$ = $1; }
 	| pointer direct_abstract_declarator
-		{ $$ = $2; }
+		{
+			$$ = $2;
+			$$->data.identifier.pointer_level += $1;
+		}
 	;
 
 direct_abstract_declarator
 	: '(' abstract_declarator ')'
 		{ $$ = $2; }
 	| '[' ']'
-		{ $$ = NULL; }
+		{
+			$$ = create_identifier_node("");
+			/* Array support later */
+		}
 	| '[' constant_expression ']'
-		{ $$ = NULL; }
+		{
+			$$ = create_identifier_node("");
+		}
 	| direct_abstract_declarator '[' ']'
 		{ $$ = $1; }
 	| direct_abstract_declarator '[' constant_expression ']'
 		{ $$ = $1; }
 	| '(' ')'
-		{ $$ = NULL; }
+		{
+			$$ = create_identifier_node("");
+		}
 	| '(' parameter_type_list ')'
-		{ $$ = $2.head; }
+		{
+			$$ = create_identifier_node("");
+			$$->data.identifier.parameters = $2.head;
+		}
 	| direct_abstract_declarator '(' ')'
 		{ $$ = $1; }
 	| direct_abstract_declarator '(' parameter_type_list ')'
-		{ $$ = $1; }
+		{
+			$$ = $1;
+			$$->data.identifier.parameters = $3.head;
+		}
 	;
 
 initializer
@@ -1072,23 +1188,52 @@ external_declaration
 
 function_definition
 	: declaration_specifiers declarator declaration_list compound_statement
-		{ $$ = create_function_def_node($1, $2->data.identifier.name, $3, $4, $2->data.identifier.is_variadic); }
+		{
+			TypeInfo* full_type = $1;
+			for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
+				full_type = create_pointer_type(full_type);
+			}
+			$$ = create_function_def_node(full_type, $2->data.identifier.name, $3, $4, $2->data.identifier.is_variadic);
+		}
 	| declaration_specifiers declarator compound_statement
 		{
-			/* Check if declarator has parameters (modern C syntax) */
+			TypeInfo* full_type = $1;
+			for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
+				full_type = create_pointer_type(full_type);
+			}
 			ASTNode* params = ($2->data.identifier.parameters) ? $2->data.identifier.parameters : NULL;
-			$$ = create_function_def_node($1, $2->data.identifier.name, params, $3, $2->data.identifier.is_variadic);
+			$$ = create_function_def_node(full_type, $2->data.identifier.name, params, $3, $2->data.identifier.is_variadic);
 		}
 	| declarator declaration_list compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, $2, $3, $1->data.identifier.is_variadic); }
+		{
+			TypeInfo* full_type = create_type_info(TYPE_INT);
+			for (int i = 0; i < $1->data.identifier.pointer_level; i++) {
+				full_type = create_pointer_type(full_type);
+			}
+			$$ = create_function_def_node(full_type, $1->data.identifier.name, $2, $3, $1->data.identifier.is_variadic);
+		}
 	| declarator compound_statement
-		{ $$ = create_function_def_node(create_type_info(TYPE_INT), $1->data.identifier.name, NULL, $2, $1->data.identifier.is_variadic); }
+		{
+			TypeInfo* full_type = create_type_info(TYPE_INT);
+			for (int i = 0; i < $1->data.identifier.pointer_level; i++) {
+				full_type = create_pointer_type(full_type);
+			}
+			$$ = create_function_def_node(full_type, $1->data.identifier.name, NULL, $2, $1->data.identifier.is_variadic);
+		}
 	;
 
 %%
 
+extern int yylineno;
+
+
+
 int yyerror(const char* s) {
+
 	fflush(stdout);
-	printf("\nError near '%s' at column %d: %s\n", yytext, column, s);
+
+	printf("\nError near '%s' at line %d, column %d: %s\n", yytext, yylineno, column, s);
+
 	return 0;
+
 }

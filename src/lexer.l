@@ -29,7 +29,7 @@ E			[Ee][+-]?{D}+
 FS			(f|F|l|L)
 IS			(u|U|l|L)*
 
-%option noyywrap
+%option noyywrap yylineno
 
 %%
 "_Nullable"		{ count(); }
