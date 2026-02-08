@@ -1,8 +1,8 @@
 #include "catch2/catch.hpp"
 
 extern "C" {
-    #include "../../src/ast.h"
-    #include "../../src/codegen.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/codegen.h"
 }
 
 TEST_CASE("External Declarations AST") {

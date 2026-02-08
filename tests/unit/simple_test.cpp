@@ -10,11 +10,11 @@
 #include <unistd.h>
 
 extern "C" {
-    #include "../../src/ast.h"
-    #include "../../src/error_handling.h"
-    #include "../../src/memory_management.h"
-    #include "../../src/codegen.h"
-    #include "../../src/constants.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/error_handling.h"
+    #include "../../srccpp/memory_management.h"
+    #include "../../srccpp/codegen.h"
+    #include "../../srccpp/constants.h"
 }
 
 /* Forward declarations from main.cpp to exercise CLI helpers */
@@ -122,13 +122,14 @@ TEST_CASE("AST Node Construction") {
     }
 
     SECTION("String literal node creation") {
-        char str[] = "Hello, World!";
-        ASTNode* node = create_string_literal_node(str);
+        char input[] = "\"Hello, World!\"";
+        char expected[] = "Hello, World!";
+        ASTNode* node = create_string_literal_node(input);
         REQUIRE(node != nullptr);
         REQUIRE(node->type == AST_STRING_LITERAL);
         REQUIRE(node->data.string_literal.string != nullptr);
-        REQUIRE(strcmp(node->data.string_literal.string, str) == 0);
-        REQUIRE(node->data.string_literal.length == (int)strlen(str));
+        REQUIRE(strcmp(node->data.string_literal.string, expected) == 0);
+        REQUIRE(node->data.string_literal.length == (int)strlen(expected));
         free_ast_node(node);
     }
 

@@ -2,9 +2,9 @@
 #include <cstring>
 
 extern "C" {
-    #include "../../src/codegen.h"
-    #include "../../src/ast.h"
-    #include "../../src/constants.h"
+    #include "../../srccpp/codegen.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/constants.h"
 }
 
 TEST_CASE("LLVM Type String Conversion") {

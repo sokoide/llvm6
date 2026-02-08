@@ -2,7 +2,7 @@
 TARGET = ./ccompiler
 CXX = g++
 CC = gcc
-CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Isrc
+CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Isrccpp
 CFLAGS = -Wall -Wextra -O2
 LIBS =
 
@@ -15,7 +15,7 @@ UNIT_TEST_DIR = tests/unit
 UNIT_TEST_BUILD = $(BUILD_DIR)/unit_tests
 
 # Source files
-SOURCES = src/main.cpp src/ast.cpp src/codegen.cpp src/error_handling.cpp src/memory_management.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
+SOURCES = srccpp/main.cpp srccpp/ast.cpp srccpp/codegen.cpp srccpp/error_handling.cpp srccpp/memory_management.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
 
 # Unit test files
@@ -108,55 +108,55 @@ $(TEST_REPORTS):
 	mkdir -p $(TEST_REPORTS)
 
 # Object file dependencies
-$(BUILD_DIR)/main.o: src/main.cpp src/ast.h src/codegen.h $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c src/main.cpp -o $@
+$(BUILD_DIR)/main.o: srccpp/main.cpp srccpp/ast.h srccpp/codegen.h $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c srccpp/main.cpp -o $@
 
-$(BUILD_DIR)/ast.o: src/ast.cpp src/ast.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c src/ast.cpp -o $@
+$(BUILD_DIR)/ast.o: srccpp/ast.cpp srccpp/ast.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c srccpp/ast.cpp -o $@
 
-$(BUILD_DIR)/codegen.o: src/codegen.cpp src/codegen.h src/ast.h src/constants.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c src/codegen.cpp -o $@
+$(BUILD_DIR)/codegen.o: srccpp/codegen.cpp srccpp/codegen.h srccpp/ast.h srccpp/constants.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c srccpp/codegen.cpp -o $@
 
-$(BUILD_DIR)/error_handling.o: src/error_handling.cpp src/error_handling.h src/constants.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c src/error_handling.cpp -o $@
+$(BUILD_DIR)/error_handling.o: srccpp/error_handling.cpp srccpp/error_handling.h srccpp/constants.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c srccpp/error_handling.cpp -o $@
 
-$(BUILD_DIR)/memory_management.o: src/memory_management.cpp src/memory_management.h src/constants.h src/error_handling.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c src/memory_management.cpp -o $@
+$(BUILD_DIR)/memory_management.o: srccpp/memory_management.cpp srccpp/memory_management.h srccpp/constants.h srccpp/error_handling.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c srccpp/memory_management.cpp -o $@
 
-$(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp src/ast.h src/codegen.h | $(BUILD_DIR)
+$(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp srccpp/ast.h srccpp/codegen.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 $(BUILD_DIR)/lex.yy.o: $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Wno-sign-compare -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Generate parser from grammar
-$(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: src/grammar.y | $(BUILD_DIR)/generated
+$(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: srccpp/grammar.y | $(BUILD_DIR)/generated
 	@echo "Generating parser..."
-	bison -d -v -t -o $(BUILD_DIR)/generated/grammar.tab.cpp src/grammar.y
+	bison -d -v -t -o $(BUILD_DIR)/generated/grammar.tab.cpp srccpp/grammar.y
 
 # Generate lexer from specification
-$(BUILD_DIR)/generated/lex.yy.c: src/lexer.l $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)/generated
+$(BUILD_DIR)/generated/lex.yy.c: srccpp/lexer.l $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)/generated
 	@echo "Generating lexer..."
-	flex -o $@ src/lexer.l
+	flex -o $@ srccpp/lexer.l
 
 # Unit test object files
 $(UNIT_TEST_BUILD)/test_main.o: $(UNIT_TEST_DIR)/test_main.cpp | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
-$(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp src/ast.h src/error_handling.h src/memory_management.h src/codegen.h src/constants.h | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp srccpp/ast.h srccpp/error_handling.h srccpp/memory_management.h srccpp/codegen.h srccpp/constants.h | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
-$(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp src/main.cpp | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp srccpp/main.cpp | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
-$(UNIT_TEST_BUILD)/test_external_decl.o: $(UNIT_TEST_DIR)/test_external_decl.cpp src/ast.h src/codegen.h | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/test_external_decl.o: $(UNIT_TEST_DIR)/test_external_decl.cpp srccpp/ast.h srccpp/codegen.h | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 # Pointer/Struct test object files
-$(UNIT_TEST_BUILD)/test_pointers_simple.o: $(UNIT_TEST_DIR)/test_pointers_simple.cpp src/ast.h src/codegen.h src/memory_management.h src/constants.h | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/test_pointers_simple.o: $(UNIT_TEST_DIR)/test_pointers_simple.cpp srccpp/ast.h srccpp/codegen.h srccpp/memory_management.h srccpp/constants.h | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
-$(UNIT_TEST_BUILD)/test_structs_simple_fixed.o: $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp src/ast.h src/codegen.h src/memory_management.h src/constants.h | $(UNIT_TEST_BUILD)
+$(UNIT_TEST_BUILD)/test_structs_simple_fixed.o: $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp srccpp/ast.h srccpp/codegen.h srccpp/memory_management.h srccpp/constants.h | $(UNIT_TEST_BUILD)
 	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
 
 $(UNIT_TEST_BUILD)/test_pointer_struct_runner.o: $(UNIT_TEST_DIR)/test_pointer_struct_runner.cpp | $(UNIT_TEST_BUILD)
@@ -345,7 +345,7 @@ test-unit-coverage: clean
 	@./unit_tests
 	@echo "Generating unit test coverage report..."
 	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) src/*.cpp 2>/dev/null || echo "gcov not available for some files"
+	@gcov -o $(BUILD_DIR) srccpp/*.cpp 2>/dev/null || echo "gcov not available for some files"
 	@gcov -o $(UNIT_TEST_BUILD) tests/unit/*.cpp 2>/dev/null || echo "gcov not available for test files"
 	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
 	@echo "Unit test coverage files generated in $(TEST_REPORTS)/"
@@ -365,7 +365,7 @@ test-coverage-combined: clean
 	@./pointer_struct_tests || echo "Pointer/struct tests failed as expected"
 	@echo "Generating combined coverage report..."
 	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) src/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available for some files"
+	@gcov -o $(BUILD_DIR) srccpp/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available for some files"
 	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
 	@echo "Combined coverage analysis complete."
 	@if command -v lcov >/dev/null 2>&1; then \
@@ -386,7 +386,7 @@ test-coverage: clean
 	@$(MAKE) test-quick 2>/dev/null || true
 	@echo "Generating coverage report..."
 	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) src/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
+	@gcov -o $(BUILD_DIR) srccpp/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
 	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
 	@echo "Coverage files generated:"
 	@ls -la $(TEST_REPORTS)/*.gcov 2>/dev/null || echo "No .gcov files found"
@@ -494,7 +494,7 @@ static-analysis: cppcheck
 cppcheck:
 	@echo "Running cppcheck..."
 	@if which cppcheck >/dev/null 2>&1; then \
-		cppcheck --enable=all --inconclusive --std=c++17 -I src --suppress=missingIncludeSystem --error-exitcode=0 src/*.cpp 2>&1 | tee build/cppcheck.log; \
+		cppcheck --enable=all --inconclusive --std=c++17 -I srccpp --suppress=missingIncludeSystem --error-exitcode=0 srccpp/*.cpp 2>&1 | tee build/cppcheck.log; \
 	else \
 		echo "WARNING: cppcheck not found. Install with: brew install cppcheck (macOS) or apt-get install cppcheck (Linux)"; \
 	fi

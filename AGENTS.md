@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The core compiler lives in `src/`, split into `lexer.l`, `grammar.y`, `ast.*`, `codegen.*`, and `main.cpp` for the driver. Generated artifacts and object files land in `build/`, while the assembled binary is published to `ccompiler/ccompiler`. Documentation lives under `docs/` with deeper architecture notes, and `tests/` is organized into `fixtures/` (input C files), `output/` (generated `.ll`), and `reports/` for coverage data. Avoid committing anything from `build/` or `tests/output/`; they are reproducible.
+The core compiler lives in `srccpp/`, split into `lexer.l`, `grammar.y`, `ast.*`, `codegen.*`, and `main.cpp` for the driver. Generated artifacts and object files land in `build/`, while the assembled binary is published to `ccompiler/ccompiler`. Documentation lives under `docs/` with deeper architecture notes, and `tests/` is organized into `fixtures/` (input C files), `output/` (generated `.ll`), and `reports/` for coverage data. Avoid committing anything from `build/` or `tests/output/`; they are reproducible.
 
 ## Build, Test, and Development Commands
 Run `make check-deps` once to confirm `bison`, `flex`, `g++`, and optional LLVM tools. `make` (or `make debug`) compiles the driver and stages artifacts in `build/`. Use `make run INPUT=hello.c` to build and run a fixture. Use `make ir INPUT=hello.c OUTPUT=hello.ll` to generate LLVM IR, or `make bin INPUT=hello.ll` to build an executable from IR. `make test` executes the full regression suite; `make test-quick` is the fast smoke run; `make test-coverage` emits LCOV data under `tests/reports/`; `make validate` feeds generated IR through `llvm-as` for syntax checking.

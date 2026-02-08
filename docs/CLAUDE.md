@@ -39,31 +39,31 @@ make debug && ./ccompiler -v -a file.c  # Debug mode with verbose AST output
 
 ### Core Components
 
-**AST System (`src/ast.h`, `src/ast.cpp`)**
+**AST System (`srccpp/ast.h`, `srccpp/ast.cpp`)**
 - `ASTNode`: Unified node structure with type-tagged unions for all C constructs
 - `TypeInfo`: Type representation with qualifiers, storage classes, pointer levels
 - `Symbol`: Symbol table entries with scope and type information
 - 47 AST node types covering full C language (expressions, statements, declarations)
 
-**Code Generation (`src/codegen.h`, `src/codegen.cpp`)**  
+**Code Generation (`srccpp/codegen.h`, `srccpp/codegen.cpp`)**  
 - `CodeGenContext`: Central state for LLVM IR generation
 - Register allocation with `next_reg_id` counter
 - Basic block management with labels and control flow
 - Symbol table management (global/local scopes)
 - Type system mapping C types to LLVM types
 
-**Parser (`src/grammar.y`)**
+**Parser (`srccpp/grammar.y`)**
 - Full C89/C90 grammar specification
 - Operator precedence and associativity rules
 - AST construction actions for all productions
 - Error recovery mechanisms
 
-**Lexer (`src/lexer.l`)**
+**Lexer (`srccpp/lexer.l`)**
 - Complete C tokenization (keywords, operators, literals)
 - Line/column tracking for error reporting
 - Comment handling and whitespace management
 
-**Main Driver (`src/main.cpp`)**
+**Main Driver (`srccpp/main.cpp`)**
 - Command-line option parsing (`-v`, `-a`, `-o`, `-h`)
 - File I/O management and error handling
 - Integration of lexer → parser → codegen pipeline
@@ -74,9 +74,9 @@ make debug && ./ccompiler -v -a file.c  # Debug mode with verbose AST output
 C Source → Lexer (flex) → Tokens → Parser (bison) → AST → Code Generator → LLVM IR
 ```
 
-1. **Lexical Analysis**: `src/lexer.l` tokenizes C source into terminal symbols
-2. **Syntax Analysis**: `src/grammar.y` builds AST from tokens using grammar rules
-3. **Code Generation**: `src/codegen.cpp` traverses AST and emits LLVM IR instructions
+1. **Lexical Analysis**: `srccpp/lexer.l` tokenizes C source into terminal symbols
+2. **Syntax Analysis**: `srccpp/grammar.y` builds AST from tokens using grammar rules
+3. **Code Generation**: `srccpp/codegen.cpp` traverses AST and emits LLVM IR instructions
 4. **Output**: LLVM IR text format ready for `llc` or `clang` backend
 
 ### Key Design Patterns

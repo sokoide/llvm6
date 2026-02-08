@@ -28,7 +28,7 @@ For project overview and development guidance, see [`CLAUDE.md`](./CLAUDE.md).
 ```
 claude/
 ├── docs/           # Documentation (this directory)
-├── src/            # Source code
+├── srccpp/            # Source code
 ├── tests/          # Test cases organized by type
 │   ├── fixtures/   # Input test files (.c)
 │   ├── output/     # Generated LLVM IR (.ll)

@@ -1,9 +1,9 @@
 #include "catch2/catch.hpp"
 
 extern "C" {
-    #include "../../src/ast.h"
-    #include "../../src/memory_management.h"
-    #include "../../src/constants.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/memory_management.h"
+    #include "../../srccpp/constants.h"
 }
 
 TEST_CASE("AST Node Creation") {

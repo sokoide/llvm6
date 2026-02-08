@@ -1,12 +1,13 @@
 #include <cstdio>
 
 extern "C" {
-#include "../../src/ast.h"
+#include "../../srccpp/ast.h"
 
 FILE* yyin = NULL;
 int yylineno = 1;
 char* yytext = const_cast<char*>("");
 ASTNode* program_ast = NULL;
+int yydebug = 0;
 
 int yyparse(void) {
     /* Parser stub: use existing program_ast, report success */
@@ -19,6 +20,6 @@ int yylex(void) {
 }
 
 #define main ccompiler_main
-#line 1 "src/main.cpp"
-#include "../../src/main.cpp"
+#line 1 "srccpp/main.cpp"
+#include "../../srccpp/main.cpp"
 #undef main

@@ -4,10 +4,10 @@
 #include <cstdio>
 
 extern "C" {
-    #include "../../src/ast.h"
-    #include "../../src/codegen.h"
-    #include "../../src/memory_management.h"
-    #include "../../src/constants.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/codegen.h"
+    #include "../../srccpp/memory_management.h"
+    #include "../../srccpp/constants.h"
 }
 
 TEST_CASE("Struct Features") {

@@ -5,10 +5,10 @@
 #include <cstdio>
 
 extern "C" {
-    #include "../../src/ast.h"
-    #include "../../src/error_handling.h"
-    #include "../../src/memory_management.h"
-    #include "../../src/codegen.h"
+    #include "../../srccpp/ast.h"
+    #include "../../srccpp/error_handling.h"
+    #include "../../srccpp/memory_management.h"
+    #include "../../srccpp/codegen.h"
 }
 
 int passed = 0;

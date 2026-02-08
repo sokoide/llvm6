@@ -12,8 +12,8 @@ This document provides comprehensive API documentation for the C-to-LLVM IR comp
 
 ## Module: AST (Abstract Syntax Tree)
 
-**Header:** `src/ast.h`  
-**Implementation:** `src/ast.cpp`  
+**Header:** `srccpp/ast.h`  
+**Implementation:** `srccpp/ast.cpp`  
 **Purpose:** Core AST node management and type system
 
 ### Core Data Structures
@@ -253,8 +253,8 @@ Creates a new symbol table entry.
 
 ## Module: Code Generation
 
-**Header:** `src/codegen.h`  
-**Implementation:** `src/codegen.cpp`  
+**Header:** `srccpp/codegen.h`  
+**Implementation:** `srccpp/codegen.cpp`  
 **Purpose:** LLVM IR generation from AST
 
 ### Core Structures
@@ -347,8 +347,8 @@ Converts TypeInfo to LLVM type string.
 
 ## Module: Error Handling
 
-**Header:** `src/error_handling.h`  
-**Implementation:** `src/error_handling.cpp`  
+**Header:** `srccpp/error_handling.h`  
+**Implementation:** `srccpp/error_handling.cpp`  
 **Purpose:** Comprehensive error reporting and management
 
 ### Error Types
@@ -414,8 +414,8 @@ Converts error type to human-readable string.
 
 ## Module: Memory Management
 
-**Header:** `src/memory_management.h`  
-**Implementation:** `src/memory_management.cpp`  
+**Header:** `srccpp/memory_management.h`  
+**Implementation:** `srccpp/memory_management.cpp`  
 **Purpose:** Safe memory allocation and debugging
 
 ### Memory Statistics

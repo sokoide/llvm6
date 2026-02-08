@@ -2,8 +2,8 @@
 #include <cstring>
 
 extern "C" {
-    #include "../../src/error_handling.h"
-    #include "../../src/constants.h"
+    #include "../../srccpp/error_handling.h"
+    #include "../../srccpp/constants.h"
 }
 
 TEST_CASE("Error Creation") {

@@ -66,12 +66,12 @@ make test
 
 ### Core Components
 
--   **Lexer** (`src/lexer.l`) - Tokenizes C source code using Flex
--   **Parser** (`src/grammar.y`) - Builds AST from tokens using Bison
--   **AST System** (`src/ast.h/cpp`) - 47 node types covering full C language
--   **Code Generator** (`src/codegen.h/cpp`) - Traverses AST and emits LLVM IR
--   **Error Handling** (`src/error_handling.h/cpp`) - Standardized error reporting
--   **Memory Management** (`src/memory_management.h/cpp`) - Advanced memory tracking
+-   **Lexer** (`srccpp/lexer.l`) - Tokenizes C source code using Flex
+-   **Parser** (`srccpp/grammar.y`) - Builds AST from tokens using Bison
+-   **AST System** (`srccpp/ast.h/cpp`) - 47 node types covering full C language
+-   **Code Generator** (`srccpp/codegen.h/cpp`) - Traverses AST and emits LLVM IR
+-   **Error Handling** (`srccpp/error_handling.h/cpp`) - Standardized error reporting
+-   **Memory Management** (`srccpp/memory_management.h/cpp`) - Advanced memory tracking
 
 ### Data Flow
 
