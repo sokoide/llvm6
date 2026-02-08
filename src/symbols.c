@@ -7,12 +7,14 @@ TypeInfo* g_all_structs = NULL;
 
 void symbol_add_global(Symbol* symbol) {
     if (!symbol) return;
+    symbol->is_global = 1;
     symbol->next = g_global_symbols;
     g_global_symbols = symbol;
 }
 
 void symbol_add_local(Symbol* symbol) {
     if (!symbol) return;
+    symbol->is_global = 0;
     /* Check for duplicate symbols in local scope */
     Symbol* existing = g_local_symbols;
     while (existing) {
@@ -31,7 +33,8 @@ Symbol* symbol_lookup(const char* name) {
     /* Check local symbols first */
     Symbol* symbol = g_local_symbols;
     while (symbol) {
-        if (symbol->name && strcmp(symbol->name, name) == 0) {
+        if ((symbol->name && strcmp(symbol->name, name) == 0) ||
+            (symbol->original_name && strcmp(symbol->original_name, name) == 0)) {
             return symbol;
         }
         symbol = symbol->next;
@@ -79,7 +82,7 @@ void symbol_clear_all(void) {
 
 void symbol_init_builtins(void) {
     Symbol* s;
-    
+
     /* __builtin_va_list (still needed as a base for va_list) */
     s = create_symbol("__builtin_va_list", create_pointer_type(create_type_info(TYPE_VOID)));
     s->type->storage_class = STORAGE_TYPEDEF;

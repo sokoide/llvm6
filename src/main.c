@@ -9,6 +9,25 @@ extern FILE* yyin;
 extern ASTNode* program_ast;
 
 int main(int argc, char* argv[]) {
+#ifndef TC1
+    // Dump code caused infinite loop
+    /*
+    if (argc > 1) {
+        char* p = argv[1];
+        int count = 0;
+        while (*p && count < 100) {
+            fputc(*p, stderr);
+            p++;
+            count++;
+        }
+        fputc('\n', stderr);
+    }
+    */
+    // The original `else` block for `argc > 1` was `fputc('E', stderr); ...`.
+    // This block is implicitly removed by the instruction "remove loop dump"
+    // and not being part of the new code snippet.
+#endif
+
     mem_init();
     symbol_init_builtins();
     codegen_init(stdout);

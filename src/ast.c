@@ -189,6 +189,7 @@ TypeInfo* create_type_info(DataType base_type) {
     type->struct_members = NULL;
     type->size = 0;
     type->alignment = 0;
+    type->is_unsigned = (base_type == TYPE_UNSIGNED);
     type->next = NULL;
     return type;
 }
@@ -214,10 +215,11 @@ TypeInfo* create_array_type(TypeInfo* base_type, int size) {
     return type;
 }
 
-TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters) {
+TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters, int is_variadic) {
     TypeInfo* type = create_type_info(TYPE_FUNCTION);
     type->return_type = return_type;
     type->parameters = parameters;
+    type->is_variadic = is_variadic;
     return type;
 }
 
@@ -311,28 +313,39 @@ Symbol* create_symbol(const char* name, TypeInfo* type) {
 int get_type_size(TypeInfo* type) {
     if (!type) return 0;
     if (type->pointer_level > 0) return 8; /* 64-bit pointers */
-    
-    switch (type->base_type) {
-        case TYPE_VOID: return 0;
-        case TYPE_BOOL: return 1;
-        case TYPE_CHAR: return 1;
-        case TYPE_SHORT: return 2;
-        case TYPE_INT: return 4;
-        case TYPE_LONG: return 8;
-        case TYPE_FLOAT: return 4;
-        case TYPE_DOUBLE: return 8;
-        case TYPE_STRUCT: return type->size;
-        case TYPE_UNION: return type->size;
-        case TYPE_ENUM: return 4;
-        case TYPE_ARRAY: return get_type_size(type->return_type) * type->array_size;
-        default: return 0;
+
+    /* Handle signed/unsigned modifiers by treating them as int */
+    DataType actual_base = type->base_type;
+    if (actual_base == TYPE_SIGNED || actual_base == TYPE_UNSIGNED) {
+        actual_base = TYPE_INT;
     }
+
+    int size = 0;
+    switch (actual_base) {
+        case TYPE_VOID: size = 0; break;
+        case TYPE_BOOL: size = 1; break;
+        case TYPE_CHAR: size = 1; break;
+        case TYPE_SHORT: size = 2; break;
+        case TYPE_INT: size = 4; break;
+        case TYPE_LONG: size = 8; break;
+        case TYPE_FLOAT: size = 4; break;
+        case TYPE_DOUBLE: size = 8; break;
+        case TYPE_STRUCT: size = type->size; break;
+        case TYPE_UNION: size = type->size; break;
+        case TYPE_ENUM: size = 4; break;
+        case TYPE_ARRAY: size = get_type_size(type->return_type) * type->array_size; break;
+        case TYPE_FUNCTION: size = 0; break;
+        case TYPE_POINTER: size = 8; break;
+        default: size = 4; break; /* Default to int size for unknown types */
+    }
+
+    return size;
 }
 
 int get_type_alignment(TypeInfo* type) {
     if (!type) return 1;
     if (type->pointer_level > 0) return 8;
-    
+
     switch (type->base_type) {
         case TYPE_BOOL: return 1;
         case TYPE_CHAR: return 1;
@@ -360,11 +373,11 @@ TypeInfo* create_struct_type(const char* tag, int is_union) {
         sprintf(buf, "anon.%d", g_anon_type_id++);
         type->struct_name = arena_strdup(g_compiler_arena, buf);
     }
-    
+
     /* Add to global structs list for codegen emission */
     type->next = g_all_structs;
     g_all_structs = type;
-    
+
     return type;
 }
 
@@ -383,14 +396,14 @@ void struct_finish_layout(TypeInfo* type) {
     int current_offset = 0;
     int max_alignment = 1;
     int index = 0;
-    
+
     Symbol* curr = type->struct_members;
     while (curr) {
         int sz = get_type_size(curr->type);
         int al = get_type_alignment(curr->type);
-        
+
         if (al > max_alignment) max_alignment = al;
-        
+
         curr->index = index++;
         if (type->base_type == TYPE_STRUCT) {
             /* Align current offset */
@@ -404,7 +417,7 @@ void struct_finish_layout(TypeInfo* type) {
         }
         curr = curr->next;
     }
-    
+
     /* Final struct alignment */
     type->alignment = max_alignment;
     type->size = (current_offset + max_alignment - 1) & ~(max_alignment - 1);

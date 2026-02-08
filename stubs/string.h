@@ -5,6 +5,8 @@ typedef void* FILE;
 extern FILE* stdin;
 extern FILE* stdout;
 extern FILE* stderr;
+extern int errno;
+#define EINTR 4
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
 typedef short int16_t;
@@ -16,10 +18,14 @@ typedef unsigned long uint64_t;
 typedef long intptr_t;
 typedef unsigned long uintptr_t;
 typedef _Bool bool;
-typedef int va_list;
+typedef void* va_list;
 #define NULL ((void*)0)
 #define true 1
 #define false 0
+#define va_start(ap, last)
+#define va_end(ap)
+#define va_arg(ap, type) ((type)0)
+#define va_copy(dest, src)
 int printf(const char* format, ...);
 int fprintf(FILE* stream, const char* format, ...);
 int sprintf(char* str, const char* format, ...);
@@ -51,4 +57,5 @@ int isspace(int c);
 int isdigit(int c);
 int isalpha(int c);
 int isalnum(int c);
+#define EOF (-1)
 #endif

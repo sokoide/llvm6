@@ -131,16 +131,19 @@ struct TypeInfo {
     int array_size;
     struct TypeInfo* return_type; /* for function types */
     struct ASTNode* parameters;   /* for function types */
+    int is_variadic;              /* for function types */
     char* struct_name;            /* for struct/union/enum tags */
     struct Symbol* struct_members;
     int size;
     int alignment;
+    int is_unsigned;              /* for unsigned types */
     struct TypeInfo* next;        /* for type lists */
 };
 
 /* Symbol table entry */
 struct Symbol {
     char* name;
+    char* original_name; /* original name before renaming for local scope */
     TypeInfo* type;
     int offset; /* for local variables or struct member offset in bytes */
     int index;  /* for struct member index */
@@ -273,6 +276,7 @@ struct ASTNode {
             char* name;
             ASTNode* initializer;
             ASTNode* parameters; /* for function pointers */
+            int is_variadic;     /* for function pointers */
             int pointer_level;
             struct ASTNode* array_dimensions;
         } variable_decl;
@@ -343,7 +347,7 @@ Symbol* struct_lookup_member(TypeInfo* type, const char* name);
 TypeInfo* duplicate_type_info(TypeInfo* original);
 TypeInfo* create_pointer_type(TypeInfo* base_type);
 TypeInfo* create_array_type(TypeInfo* base_type, int size);
-TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters);
+TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters, int is_variadic);
 
 void free_ast_node(ASTNode* node);
 void free_type_info(TypeInfo* type);

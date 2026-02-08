@@ -44,11 +44,10 @@ char* llvm_type_to_string(TypeInfo* type) {
         case TYPE_SHORT:  base_str = "i16"; break;
         case TYPE_INT:    base_str = "i32"; break;
         case TYPE_LONG:   base_str = "i64"; break;
+        case TYPE_UNSIGNED: base_str = "i32"; break;  /* unsigned int */
+        case TYPE_SIGNED:   base_str = "i32"; break;  /* signed int */
         case TYPE_FLOAT:  base_str = "float"; break;
         case TYPE_DOUBLE: base_str = "double"; break;
-        case TYPE_UNSIGNED: base_str = "i32"; break;
-        case TYPE_SIGNED:   base_str = "i32"; break;
-        case TYPE_BOOL:     base_str = "i1"; break;
         case TYPE_STRUCT:
         case TYPE_UNION: {
             char* buf = (char*)arena_alloc(g_compiler_arena, 128);
@@ -62,11 +61,21 @@ char* llvm_type_to_string(TypeInfo* type) {
             while (p) {
                 if (p->type == AST_VARIABLE_DECL) strcat(buf, llvm_type_to_string(p->data.variable_decl.type));
                 else strcat(buf, "i32");
-                if (p->next) strcat(buf, ", "); p = p->next;
+                if (p->next || type->is_variadic) strcat(buf, ", "); p = p->next;
             }
+            if (type->is_variadic) strcat(buf, "...");
             strcat(buf, ")"); base_str = buf; break;
         }
+        case TYPE_ARRAY:
+            /* Array base type is in return_type */
+            base_str = llvm_type_to_string(type->return_type);
+            break;
         default: base_str = "i32"; break;
+    }
+    if (type->array_size > 0) {
+        char* arr_str = (char*)arena_alloc(g_compiler_arena, strlen(base_str) + 32);
+        sprintf(arr_str, "[%d x %s]", type->array_size, base_str);
+        return arr_str;
     }
     if (type->pointer_level > 0) {
         char* ptr_str = (char*)arena_alloc(g_compiler_arena, strlen(base_str) + type->pointer_level + 1);
@@ -109,23 +118,51 @@ static char* format_operand(LLVMValue* val) {
 }
 
 static LLVMValue* cast_to_type(LLVMValue* val, TypeInfo* target_type) {
-    if (!val || !target_type) return val;
+    if (!val || !target_type) {
+        fprintf(stderr, "cast_to_type: NULL val or target_type\n");
+        return val;
+    }
     char* src_type_str = llvm_type_to_string(val->llvm_type);
     char* dest_type_str = llvm_type_to_string(target_type);
+
+    int src_size = get_type_size(val->llvm_type); int dest_size = get_type_size(target_type);
+
+    fprintf(stderr, "DEBUG: cast_to_type %s(ptr=%d, sz=%d) -> %s(ptr=%d, sz=%d)\n",
+            src_type_str, val->llvm_type->pointer_level, src_size,
+            dest_type_str, target_type->pointer_level, dest_size);
+
     if (strcmp(src_type_str, dest_type_str) == 0) return val;
 
-    /* Integer conversions */
-    int src_size = get_type_size(val->llvm_type);
-    int dest_size = get_type_size(target_type);
-    
-    if (src_size == 0 || dest_size == 0) return val;
+    /* Handle void type */
+    if (target_type->base_type == TYPE_VOID && target_type->pointer_level == 0) {
+        return val;
+    }
+
+    /* For pointer to pointer casts, use bitcast - PRIORITIZE THIS */
+    if (val->llvm_type->pointer_level > 0 && target_type->pointer_level > 0) {
+        char* reg = get_next_reg();
+        emit_instruction("%%%s = bitcast %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
+        return create_llvm_value(LLVM_VALUE_REGISTER, reg, target_type);
+    }
+
+    /* For integer to pointer or pointer to integer casts */
+    if (target_type->pointer_level > 0 && val->llvm_type->pointer_level == 0) {
+        char* reg = get_next_reg();
+        emit_instruction("%%%s = inttoptr %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
+        return create_llvm_value(LLVM_VALUE_REGISTER, reg, target_type);
+    } else if (target_type->pointer_level == 0 && val->llvm_type->pointer_level > 0) {
+        char* reg = get_next_reg();
+        emit_instruction("%%%s = ptrtoint %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
+        return create_llvm_value(LLVM_VALUE_REGISTER, reg, target_type);
+    }
+
+    /* For integer to integer casts, use sext/trunc based on size */
+    if (src_size == 0 || dest_size == 0) {
+        return val;
+    }
 
     char* reg = get_next_reg();
-    if (target_type->pointer_level > 0 && val->llvm_type->pointer_level == 0) {
-        emit_instruction("%%%s = inttoptr %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
-    } else if (target_type->pointer_level == 0 && val->llvm_type->pointer_level > 0) {
-        emit_instruction("%%%s = ptrtoint %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
-    } else if (src_size < dest_size) {
+    if (src_size < dest_size) {
         emit_instruction("%%%s = sext %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
     } else if (src_size > dest_size) {
         emit_instruction("%%%s = trunc %s %s to %s", reg, src_type_str, format_operand(val), dest_type_str);
@@ -137,13 +174,82 @@ static LLVMValue* cast_to_type(LLVMValue* val, TypeInfo* target_type) {
 
 LLVMValue* gen_address(ASTNode* expr);
 
+/* Get type of expression without generating code */
+static TypeInfo* get_expression_type(ASTNode* expr) {
+    if (!expr) return create_type_info(TYPE_INT);
+    switch (expr->type) {
+        case AST_IDENTIFIER: {
+            Symbol* sym = symbol_lookup(expr->data.identifier.name);
+            if (sym && sym->type) return sym->type;
+            return create_type_info(TYPE_INT);
+        }
+        case AST_CONSTANT:
+            return expr->data_type ? expr->data_type : create_type_info(TYPE_INT);
+        case AST_STRING_LITERAL:
+            return create_pointer_type(create_type_info(TYPE_CHAR));
+        case AST_UNARY_OP: {
+            TypeInfo* operand_type = get_expression_type(expr->data.unary_op.operand);
+            if (expr->data.unary_op.op == UOP_ADDR) {
+                return create_pointer_type(operand_type);
+            } else if (expr->data.unary_op.op == UOP_DEREF) {
+                if (operand_type->pointer_level > 0) {
+                    TypeInfo* base = duplicate_type_info(operand_type);
+                    base->pointer_level--;
+                    return base;
+                }
+                return create_type_info(TYPE_INT);
+            } else if (expr->data.unary_op.op == UOP_SIZEOF) {
+                return create_type_info(TYPE_INT);
+            }
+            return operand_type;
+        }
+        case AST_BINARY_OP:
+            return get_expression_type(expr->data.binary_op.left);
+        case AST_CONDITIONAL:
+            return get_expression_type(expr->data.conditional_expr.then_expr);
+        case AST_FUNCTION_CALL: {
+            if (expr->data.function_call.function->type == AST_IDENTIFIER) {
+                Symbol* sym = symbol_lookup(expr->data.function_call.function->data.identifier.name);
+                if (sym && sym->type && sym->type->return_type) return sym->type->return_type;
+            }
+            return create_type_info(TYPE_INT);
+        }
+        case AST_ARRAY_ACCESS: {
+            TypeInfo* base_type = get_expression_type(expr->data.array_access.array);
+            if (base_type->pointer_level > 0) {
+                TypeInfo* elem_type = duplicate_type_info(base_type);
+                elem_type->pointer_level--;
+                return elem_type;
+            }
+            return create_type_info(TYPE_INT);
+        }
+        case AST_MEMBER_ACCESS:
+        case AST_CAST:
+            return expr->data_type ? expr->data_type : create_type_info(TYPE_INT);
+        default:
+            return create_type_info(TYPE_INT);
+    }
+}
+
 LLVMValue* gen_expression(ASTNode* expr) {
     if (!expr) return NULL;
     switch (expr->type) {
         case AST_IDENTIFIER: {
             Symbol* sym = symbol_lookup(expr->data.identifier.name);
             if (!sym) { error_report("Undefined identifier: %s", expr->data.identifier.name); return NULL; }
+            if (sym->is_enum_constant) {
+                char* val_str = (char*)arena_alloc(g_compiler_arena, 16);
+                sprintf(val_str, "%d", sym->enum_value);
+                return create_llvm_value(LLVM_VALUE_CONSTANT, val_str, sym->type);
+            }
             if (sym->type->base_type == TYPE_FUNCTION && sym->type->pointer_level == 0) return create_llvm_value(LLVM_VALUE_FUNCTION, sym->name, create_pointer_type(sym->type));
+            if (sym->type->array_size > 0) {
+                char* reg = get_next_reg(); char* arr_type = llvm_type_to_string(sym->type);
+                /* Create element type - use return_type which is the element type */
+                TypeInfo* elem_type = duplicate_type_info(sym->type->return_type);
+                emit_instruction("%%%s = getelementptr %s, %s* %s%s, i32 0, i32 0", reg, arr_type, arr_type, sym->is_global ? "@" : "%", sym->name);
+                return create_llvm_value(LLVM_VALUE_REGISTER, reg, create_pointer_type(elem_type));
+            }
             char* reg = get_next_reg(); char* type_str = llvm_type_to_string(sym->type);
             emit_instruction("%%%s = load %s, %s* %s%s", reg, type_str, type_str, sym->is_global ? "@" : "%", sym->name);
             return create_llvm_value(LLVM_VALUE_REGISTER, reg, sym->type);
@@ -155,7 +261,7 @@ LLVMValue* gen_expression(ASTNode* expr) {
         }
         case AST_CAST: {
             LLVMValue* val = gen_expression(expr->data.cast_expr.operand); if (!val) return NULL;
-            return create_llvm_value(val->type, val->name, expr->data.cast_expr.target_type);
+            return cast_to_type(val, expr->data.cast_expr.target_type);
         }
         case AST_STRING_LITERAL: {
             char* label = get_next_label(".str"); char* val = expr->data.string_literal.string; int len = expr->data.string_literal.length;
@@ -166,119 +272,225 @@ LLVMValue* gen_expression(ASTNode* expr) {
             return create_llvm_value(LLVM_VALUE_CONSTANT, gep, create_pointer_type(create_type_info(TYPE_CHAR)));
         }
         case AST_CONDITIONAL: {
-            char* then_label = get_next_label("cond_then"); char* else_label = get_next_label("cond_else"); char* end_label = get_next_label("cond_end");
-            LLVMValue* cond = gen_expression(expr->data.conditional_expr.condition); if (!cond) return NULL;
-            char* cond_reg = get_next_reg(); emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0");
+            char* then_label = get_next_label("cond_then");
+            char* else_label = get_next_label("cond_else");
+            char* end_label = get_next_label("cond_end");
+
+            LLVMValue* cond = gen_expression(expr->data.conditional_expr.condition);
+            if (!cond) return NULL;
+
+            /* Determine common type using type inference (no code generation) */
+            TypeInfo* then_type = get_expression_type(expr->data.conditional_expr.then_expr);
+            TypeInfo* else_type = get_expression_type(expr->data.conditional_expr.else_expr);
+            TypeInfo* common_type = then_type;
+            int then_size = get_type_size(then_type);
+            int else_size = get_type_size(else_type);
+            if (else_size > then_size) {
+                common_type = else_type;
+            }
+
+            char* cond_reg = get_next_reg();
+            emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0");
             emit_instruction("br i1 %%%s, label %%%s, label %%%s", cond_reg, then_label, else_label);
-            fprintf(g_ctx.output, "%s:\n", then_label); LLVMValue* then_val = gen_expression(expr->data.conditional_expr.then_expr); emit_instruction("br label %%%s", end_label);
-            fprintf(g_ctx.output, "%s:\n", else_label); LLVMValue* else_val = gen_expression(expr->data.conditional_expr.else_expr); emit_instruction("br label %%%s", end_label);
-            fprintf(g_ctx.output, "%s:\n", end_label); if (!then_val || !else_val) return NULL;
-            char* res_reg = get_next_reg(); char* res_type = llvm_type_to_string(then_val->llvm_type);
-            emit_instruction("%%%s = phi %s [ %s, %%%s ], [ %s, %%%s ]", res_reg, res_type, format_operand(then_val), then_label, format_operand(else_val), else_label);
-            return create_llvm_value(LLVM_VALUE_REGISTER, res_reg, then_val->llvm_type);
+
+            /* Then branch */
+            fprintf(g_ctx.output, "%s:\n", then_label);
+            LLVMValue* then_val = gen_expression(expr->data.conditional_expr.then_expr);
+            char* then_phi_label = then_label;
+            int then_needs_cast = (strcmp(llvm_type_to_string(then_val->llvm_type), llvm_type_to_string(common_type)) != 0);
+            if (then_needs_cast) {
+                then_phi_label = get_next_label("cond_then_cast");
+                emit_instruction("br label %%%s", then_phi_label);
+                fprintf(g_ctx.output, "%s:\n", then_phi_label);
+                then_val = cast_to_type(then_val, common_type);
+            }
+            emit_instruction("br label %%%s", end_label);
+
+            /* Else branch */
+            fprintf(g_ctx.output, "%s:\n", else_label);
+            LLVMValue* else_val = gen_expression(expr->data.conditional_expr.else_expr);
+            char* else_phi_label = else_label;
+            int else_needs_cast = (strcmp(llvm_type_to_string(else_val->llvm_type), llvm_type_to_string(common_type)) != 0);
+            if (else_needs_cast) {
+                else_phi_label = get_next_label("cond_else_cast");
+                emit_instruction("br label %%%s", else_phi_label);
+                fprintf(g_ctx.output, "%s:\n", else_phi_label);
+                else_val = cast_to_type(else_val, common_type);
+            }
+            emit_instruction("br label %%%s", end_label);
+
+            /* End block with phi */
+            fprintf(g_ctx.output, "%s:\n", end_label);
+            if (!then_val || !else_val) return NULL;
+            char* res_reg = get_next_reg();
+            char* res_type = llvm_type_to_string(common_type);
+            emit_instruction("%%%s = phi %s [ %s, %%%s ], [ %s, %%%s ]", res_reg, res_type, format_operand(then_val), then_phi_label, format_operand(else_val), else_phi_label);
+            return create_llvm_value(LLVM_VALUE_REGISTER, res_reg, common_type);
         }
         case AST_FUNCTION_CALL: {
             ASTNode* func_node = expr->data.function_call.function; LLVMValue* func_val = NULL; char* func_name = NULL; TypeInfo* ret_type = create_type_info(TYPE_INT);
+            TypeInfo* func_type = NULL;
             if (func_node->type == AST_IDENTIFIER) {
                 func_name = func_node->data.identifier.name; Symbol* sym = symbol_lookup(func_name);
                 if (sym && sym->type) {
-                    if (sym->type->base_type == TYPE_FUNCTION && sym->type->pointer_level == 0) ret_type = sym->type->return_type;
-                    else { func_val = gen_expression(func_node); if (func_val->llvm_type->base_type == TYPE_FUNCTION) ret_type = func_val->llvm_type->return_type; }
+                    if (sym->type->base_type == TYPE_FUNCTION && sym->type->pointer_level == 0) {
+                        func_type = sym->type; ret_type = sym->type->return_type;
+                    } else {
+                        func_val = gen_expression(func_node);
+                        if (func_val && func_val->llvm_type && func_val->llvm_type->base_type == TYPE_FUNCTION) {
+                            func_type = func_val->llvm_type; ret_type = func_type->return_type;
+                        }
+                    }
+                } else ret_type = create_type_info(TYPE_INT);
+            } else {
+                func_val = gen_expression(func_node);
+                if (func_val && func_val->llvm_type && func_val->llvm_type->base_type == TYPE_FUNCTION) {
+                    func_type = func_val->llvm_type; ret_type = func_type->return_type;
                 }
-            } else { func_val = gen_expression(func_node); if (func_val && func_val->llvm_type && func_val->llvm_type->base_type == TYPE_FUNCTION) ret_type = func_val->llvm_type->return_type; }
+            }
             int arg_count = 0; ASTNode* arg_curr = expr->data.function_call.arguments; while (arg_curr) { arg_count++; arg_curr = arg_curr->next; }
             LLVMValue** args = (LLVMValue**)malloc(sizeof(LLVMValue*) * arg_count); arg_curr = expr->data.function_call.arguments;
             for (int i = 0; i < arg_count; i++) { args[i] = gen_expression(arg_curr); arg_curr = arg_curr->next; }
             char* res_reg = (ret_type->base_type == TYPE_VOID && ret_type->pointer_level == 0) ? NULL : get_next_reg();
             char* ret_type_str = llvm_type_to_string(ret_type);
+            char* params_str = (char*)arena_alloc(g_compiler_arena, 512); params_str[0] = '\0';
+            for (int i = 0; i < arg_count; i++) { if (i > 0) strcat(params_str, ", "); if (!args[i]) strcat(params_str, "i32"); else strcat(params_str, llvm_type_to_string(args[i]->llvm_type)); }
             fprintf(g_ctx.output, "  %s%s%s call %s ", res_reg ? "%" : "", res_reg ? res_reg : "", res_reg ? " =" : "", ret_type_str);
-            if (!func_val && strcmp(func_name, "printf") == 0) fprintf(g_ctx.output, "(i8*, ...) ");
-            if (func_val) fprintf(g_ctx.output, "%s", format_operand(func_val)); else fprintf(g_ctx.output, "@%s", func_name);
-            fprintf(g_ctx.output, "(");
-            for (int i = 0; i < arg_count; i++) { 
-                if (!args[i]) { fprintf(g_ctx.output, "i32 0%s", (i < arg_count - 1) ? ", " : ""); continue; }
-                fprintf(g_ctx.output, "%s %s%s", llvm_type_to_string(args[i]->llvm_type), format_operand(args[i]), (i < arg_count - 1) ? ", " : ""); 
+
+            if (func_type && func_type->is_variadic) {
+                fprintf(g_ctx.output, "(");
+                ASTNode* p = func_type->parameters;
+                while (p) {
+                    if (p->type == AST_VARIABLE_DECL) fprintf(g_ctx.output, "%s", llvm_type_to_string(p->data.variable_decl.type));
+                    else fprintf(g_ctx.output, "i32");
+                    fprintf(g_ctx.output, ", "); p = p->next;
+                }
+                fprintf(g_ctx.output, "...) ");
+            } else if (func_type) {
+                /* Use full signature for non-variadic calls too for better compatibility */
+                fprintf(g_ctx.output, "(%s) ", params_str);
+            } else {
+                if (!func_val && strcmp(func_name, "printf") == 0) fprintf(g_ctx.output, "(i8*, ...) ");
+                else if (!func_val && strcmp(func_name, "fprintf") == 0) fprintf(g_ctx.output, "(i8*, i8*, ...) ");
+                else fprintf(g_ctx.output, "(%s) ", params_str);
             }
-            fprintf(g_ctx.output, ")\n"); free(args); 
-            if (res_reg) return create_llvm_value(LLVM_VALUE_REGISTER, res_reg, ret_type);
-            else return NULL;
-        }
-                case AST_ARRAY_ACCESS: {
-            LLVMValue* addr = gen_address(expr); if (!addr) return NULL;
-            TypeInfo* elem_type = duplicate_type_info(addr->llvm_type); elem_type->pointer_level--;
-            char* reg = get_next_reg(); emit_instruction("%%%s = load %s, %s* %s", reg, llvm_type_to_string(elem_type), llvm_type_to_string(elem_type), format_operand(addr));
-            return create_llvm_value(LLVM_VALUE_REGISTER, reg, elem_type);
+
+            if (!func_val && (strcmp(func_name, "__builtin_va_start") == 0 || strcmp(func_name, "__builtin_va_end") == 0)) {
+                LLVMValue* ap_addr = gen_address(expr->data.function_call.arguments);
+                char* ap_addr_str = format_operand(ap_addr);
+                char* cast_reg = get_next_reg();
+                emit_instruction("%%%s = bitcast %s %s to i8*", cast_reg, llvm_type_to_string(ap_addr->llvm_type), ap_addr_str);
+                emit_instruction("call void @llvm.%s(i8* %%%s)", strcmp(func_name, "__builtin_va_start") == 0 ? "va_start" : "va_end", cast_reg);
+                free(args); return NULL;
+            }
+
+            if (func_val) fprintf(g_ctx.output, "%s", format_operand(func_val));
+            else fprintf(g_ctx.output, "@%s", func_name);
+
+            fprintf(g_ctx.output, "(");
+            for (int i = 0; i < arg_count; i++) { if (!args[i]) { fprintf(g_ctx.output, "i32 0%s", (i < arg_count - 1) ? ", " : ""); continue; } fprintf(g_ctx.output, "%s %s%s", llvm_type_to_string(args[i]->llvm_type), format_operand(args[i]), (i < arg_count - 1) ? ", " : ""); }
+            fprintf(g_ctx.output, ")\n"); free(args); if (res_reg) return create_llvm_value(LLVM_VALUE_REGISTER, res_reg, ret_type); else return NULL;
         }
         case AST_BINARY_OP: {
-                    LLVMValue* left = NULL;
-                    if (expr->data.binary_op.op != OP_ASSIGN && expr->data.binary_op.op < OP_ASSIGN) left = gen_expression(expr->data.binary_op.left);
-                    LLVMValue* right = gen_expression(expr->data.binary_op.right);
-                    if (expr->data.binary_op.op != OP_ASSIGN && !left) return NULL;
-                    if (!right) return NULL;
-        
-                    /* Basic promotion to i64 */
-                    if (left && left->llvm_type->base_type == TYPE_LONG && right->llvm_type->base_type != TYPE_LONG) {
-                        char* reg = get_next_reg();
-                        emit_instruction("%%%s = sext %s %s to i64", reg, llvm_type_to_string(right->llvm_type), format_operand(right));
-                        right = create_llvm_value(LLVM_VALUE_REGISTER, reg, create_type_info(TYPE_LONG));
-                    } else if (left && right->llvm_type->base_type == TYPE_LONG && left->llvm_type->base_type != TYPE_LONG) {
-                        char* reg = get_next_reg();
-                        emit_instruction("%%%s = sext %s %s to i64", reg, llvm_type_to_string(left->llvm_type), format_operand(left));
-                        left = create_llvm_value(LLVM_VALUE_REGISTER, reg, create_type_info(TYPE_LONG));
-                    }
-        
-                    const char* op_name = NULL; const char* icmp_cond = NULL;
-        
+            LLVMValue* left = NULL; if (expr->data.binary_op.op != OP_ASSIGN && expr->data.binary_op.op < OP_ASSIGN) left = gen_expression(expr->data.binary_op.left);
+            LLVMValue* right = gen_expression(expr->data.binary_op.right);
+            if (expr->data.binary_op.op != OP_ASSIGN && !left) return NULL; if (!right) return NULL;
+            /* Type promotion: promote smaller types to larger type for binary ops */
+            if (left && left->llvm_type->pointer_level == 0 && right->llvm_type->pointer_level == 0) {
+                int left_size = get_type_size(left->llvm_type);
+                int right_size = get_type_size(right->llvm_type);
+                if (left_size > right_size) {
+                    right = cast_to_type(right, left->llvm_type);
+                } else if (right_size > left_size) {
+                    left = cast_to_type(left, right->llvm_type);
+                }
+            }
+            const char* op_name = NULL; const char* icmp_cond = NULL;
             switch (expr->data.binary_op.op) {
-                case OP_ADD: op_name = "add"; break; case OP_SUB: op_name = "sub"; break;
-                case OP_MUL: op_name = "mul"; break; case OP_DIV: op_name = "sdiv"; break;
-                case OP_MOD: op_name = "srem"; break; case OP_BITAND: op_name = "and"; break;
-                case OP_BITOR:  op_name = "or";  break; case OP_XOR:    op_name = "xor"; break;
-                case OP_LSHIFT: op_name = "shl"; break; case OP_RSHIFT: op_name = "ashr"; break;
-                case OP_LT: icmp_cond = "slt"; break; case OP_GT: icmp_cond = "sgt"; break;
-                case OP_LE: icmp_cond = "sle"; break; case OP_GE: icmp_cond = "sge"; break;
-                case OP_EQ: icmp_cond = "eq"; break; case OP_NE: icmp_cond = "ne"; break;
+                case OP_ADD: op_name = "add"; break;
+                case OP_SUB: op_name = "sub"; break;
+                case OP_MUL: op_name = "mul"; break;
+                case OP_DIV: op_name = "sdiv"; break;
+                case OP_MOD: op_name = "srem"; break;
+                case OP_BITAND: op_name = "and"; break;
+                case OP_BITOR:  op_name = "or"; break;
+                case OP_XOR:    op_name = "xor"; break;
+                case OP_LSHIFT: op_name = "shl"; break;
+                case OP_RSHIFT: op_name = "ashr"; break;
+                case OP_LT: icmp_cond = "slt"; break;
+                case OP_GT: icmp_cond = "sgt"; break;
+                case OP_LE: icmp_cond = "sle"; break;
+                case OP_GE: icmp_cond = "sge"; break;
+                case OP_EQ: icmp_cond = "eq"; break;
+                case OP_NE: icmp_cond = "ne"; break;
                 case OP_ASSIGN: {
                     LLVMValue* target_addr = gen_address(expr->data.binary_op.left); if (!target_addr) return NULL;
                     TypeInfo* target_type = duplicate_type_info(target_addr->llvm_type); target_type->pointer_level--;
-                    LLVMValue* promoted_right = cast_to_type(right, target_type);
-                    char* t_str = llvm_type_to_string(target_type);
+
+
+
+                    LLVMValue* promoted_right = cast_to_type(right, target_type); char* t_str = llvm_type_to_string(target_type);
                     emit_instruction("store %s %s, %s* %s", t_str, format_operand(promoted_right), t_str, format_operand(target_addr));
                     return promoted_right;
                 }
                 default: return NULL;
             }
             char* reg = get_next_reg(); char* type_str = llvm_type_to_string(left->llvm_type);
-            if (icmp_cond) {
-                emit_instruction("%%%s = icmp %s %s %s, %s", reg, icmp_cond, type_str, format_operand(left), format_operand(right));
-                char* zext_reg = get_next_reg(); emit_instruction("%%%s = zext i1 %%%s to i32", zext_reg, reg);
-                return create_llvm_value(LLVM_VALUE_REGISTER, zext_reg, create_type_info(TYPE_INT));
-            } else {
-                emit_instruction("%%%s = %s %s %s, %s", reg, op_name, type_str, format_operand(left), format_operand(right));
+            if (icmp_cond) { emit_instruction("%%%s = icmp %s %s %s, %s", reg, icmp_cond, type_str, format_operand(left), format_operand(right)); char* zext_reg = get_next_reg(); emit_instruction("%%%s = zext i1 %%%s to i32", zext_reg, reg); return create_llvm_value(LLVM_VALUE_REGISTER, zext_reg, create_type_info(TYPE_INT)); }
+            else if (left->llvm_type->pointer_level > 0 && right->llvm_type->pointer_level > 0 && strcmp(op_name, "sub") == 0) {
+                /* Pointer - Pointer subtraction: convert both to integers first */
+                char* left_int = get_next_reg(); char* right_int = get_next_reg();
+                emit_instruction("%%%s = ptrtoint %s %s to i64", left_int, type_str, format_operand(left));
+                emit_instruction("%%%s = ptrtoint %s %s to i64", right_int, type_str, format_operand(right));
+                emit_instruction("%%%s = sub i64 %%%s, %%%s", reg, left_int, right_int);
+                return create_llvm_value(LLVM_VALUE_REGISTER, reg, create_type_info(TYPE_LONG));
+            }
+            else if (left->llvm_type->pointer_level > 0 && right->llvm_type->pointer_level == 0 && strcmp(op_name, "add") == 0) {
+                /* Pointer + Integer: use getelementptr */
+                fprintf(stderr, "DEBUG: Pointer+Integer Add. Left: %s (ptr=%d), Right: %s (ptr=%d)\n", llvm_type_to_string(left->llvm_type), left->llvm_type->pointer_level, llvm_type_to_string(right->llvm_type), right->llvm_type->pointer_level);
+                TypeInfo* pointed_to = duplicate_type_info(left->llvm_type); pointed_to->pointer_level--;
+                char* elem_type_str = llvm_type_to_string(pointed_to);
+                emit_instruction("%%%s = getelementptr %s, %s %s, %s %s", reg, elem_type_str, type_str, format_operand(left), llvm_type_to_string(right->llvm_type), format_operand(right));
+                /* Ensure we return a correct pointer type by duplicating */
+                TypeInfo* ret_type = duplicate_type_info(left->llvm_type);
+                fprintf(stderr, "DEBUG: Returning type %s (ptr=%d)\n", llvm_type_to_string(ret_type), ret_type->pointer_level);
+                return create_llvm_value(LLVM_VALUE_REGISTER, reg, ret_type);
+            }
+            else if (left->llvm_type->pointer_level > 0 && right->llvm_type->pointer_level == 0 && strcmp(op_name, "sub") == 0) {
+                /* Pointer - Integer: negate and use getelementptr */
+                TypeInfo* pointed_to = duplicate_type_info(left->llvm_type); pointed_to->pointer_level--;
+                char* elem_type_str = llvm_type_to_string(pointed_to);
+                char* neg_reg = get_next_reg();
+                emit_instruction("%%%s = sub %s 0, %s", neg_reg, llvm_type_to_string(right->llvm_type), format_operand(right));
+                emit_instruction("%%%s = getelementptr %s, %s %s, %s %%%s", reg, elem_type_str, type_str, format_operand(left), llvm_type_to_string(right->llvm_type), neg_reg);
                 return create_llvm_value(LLVM_VALUE_REGISTER, reg, left->llvm_type);
+            }
+            else {
+                emit_instruction("%%%s = %s %s %s, %s", reg, op_name, type_str, format_operand(left), format_operand(right));
+                TypeInfo* result_type = left->llvm_type;
+                /* If expression has a specific type (from declaration), use that type and cast result */
+                if (expr->data_type) {
+                    result_type = expr->data_type;
+                    LLVMValue* result = create_llvm_value(LLVM_VALUE_REGISTER, reg, left->llvm_type);
+                    result = cast_to_type(result, expr->data_type);
+                    return result;
+                }
+                return create_llvm_value(LLVM_VALUE_REGISTER, reg, result_type);
             }
         }
         case AST_UNARY_OP: {
             LLVMValue* operand = gen_expression(expr->data.unary_op.operand); if (!operand) return NULL;
-            if (expr->data.unary_op.op == UOP_BITNOT) {
-                char* reg = get_next_reg(); emit_instruction("%%%s = xor %s %s, -1", reg, llvm_type_to_string(operand->llvm_type), format_operand(operand));
-                return create_llvm_value(LLVM_VALUE_REGISTER, reg, operand->llvm_type);
-            }
+            if (expr->data.unary_op.op == UOP_BITNOT) { char* reg = get_next_reg(); emit_instruction("%%%s = xor %s %s, -1", reg, llvm_type_to_string(operand->llvm_type), format_operand(operand)); return create_llvm_value(LLVM_VALUE_REGISTER, reg, operand->llvm_type); }
             if (expr->data.unary_op.op == UOP_ADDR) return gen_address(expr->data.unary_op.operand);
-            if (expr->data.unary_op.op == UOP_DEREF) {
-                char* reg = get_next_reg(); TypeInfo* res_type = duplicate_type_info(operand->llvm_type); res_type->pointer_level--;
-                emit_instruction("%%%s = load %s, %s* %s", reg, llvm_type_to_string(res_type), llvm_type_to_string(res_type), format_operand(operand));
-                return create_llvm_value(LLVM_VALUE_REGISTER, reg, res_type);
-            }
-            if (expr->data.unary_op.op == UOP_NOT) {
-                char* reg = get_next_reg();
-                emit_instruction("%%%s = icmp eq %s %s, %s", reg, llvm_type_to_string(operand->llvm_type), format_operand(operand), (operand->llvm_type->pointer_level > 0) ? "null" : "0");
-                /* zext to i32 for C boolean */
-                char* zext_reg = get_next_reg();
-                emit_instruction("%%%s = zext i1 %%%s to i32", zext_reg, reg);
-                return create_llvm_value(LLVM_VALUE_REGISTER, zext_reg, create_type_info(TYPE_INT));
-            }
+            if (expr->data.unary_op.op == UOP_DEREF) { char* reg = get_next_reg(); TypeInfo* res_type = duplicate_type_info(operand->llvm_type); res_type->pointer_level--; emit_instruction("%%%s = load %s, %s* %s", reg, llvm_type_to_string(res_type), llvm_type_to_string(res_type), format_operand(operand)); return create_llvm_value(LLVM_VALUE_REGISTER, reg, res_type); }
+            if (expr->data.unary_op.op == UOP_NOT) { char* reg = get_next_reg(); emit_instruction("%%%s = icmp eq %s %s, %s", reg, llvm_type_to_string(operand->llvm_type), format_operand(operand), (operand->llvm_type->pointer_level > 0) ? "null" : "0"); char* zext_reg = get_next_reg(); emit_instruction("%%%s = zext i1 %%%s to i32", zext_reg, reg); return create_llvm_value(LLVM_VALUE_REGISTER, zext_reg, create_type_info(TYPE_INT)); }
             return operand;
+        }
+        case AST_ARRAY_ACCESS: {
+            LLVMValue* addr = gen_address(expr); if (!addr) return NULL;
+            TypeInfo* elem_type = duplicate_type_info(addr->llvm_type); elem_type->pointer_level--;
+            char* reg = get_next_reg(); char* type_str = llvm_type_to_string(elem_type);
+            emit_instruction("%%%s = load %s, %s* %s", reg, type_str, type_str, format_operand(addr)); return create_llvm_value(LLVM_VALUE_REGISTER, reg, elem_type);
         }
         case AST_MEMBER_ACCESS: {
             LLVMValue* addr = gen_address(expr); if (!addr) return NULL;
@@ -295,33 +507,26 @@ LLVMValue* gen_address(ASTNode* expr) {
     switch (expr->type) {
         case AST_IDENTIFIER: {
             Symbol* sym = symbol_lookup(expr->data.identifier.name); if (!sym) return NULL;
+            /* For arrays, return pointer to element type, not pointer to array */
+            if (sym->type->array_size > 0) {
+                TypeInfo* elem_type = duplicate_type_info(sym->type->return_type);
+                return create_llvm_value(sym->is_global ? LLVM_VALUE_GLOBAL : LLVM_VALUE_REGISTER, sym->name, create_pointer_type(elem_type));
+            }
             return create_llvm_value(sym->is_global ? LLVM_VALUE_GLOBAL : LLVM_VALUE_REGISTER, sym->name, create_pointer_type(sym->type));
         }
         case AST_ARRAY_ACCESS: {
-            LLVMValue* base = gen_expression(expr->data.array_access.array);
-            LLVMValue* index = gen_expression(expr->data.array_access.index);
+            LLVMValue* base = gen_expression(expr->data.array_access.array); LLVMValue* index = gen_expression(expr->data.array_access.index);
             if (!base || !index || !base->llvm_type) return NULL;
-            char* res_reg = get_next_reg();
-            TypeInfo* pointed_to = duplicate_type_info(base->llvm_type); pointed_to->pointer_level--;
-            char* p_str = llvm_type_to_string(pointed_to);
-            emit_instruction("%%%s = getelementptr %s, %s %s, %s %s",
-                res_reg, p_str, llvm_type_to_string(base->llvm_type), format_operand(base),
-                llvm_type_to_string(index->llvm_type), format_operand(index));
+            char* res_reg = get_next_reg(); TypeInfo* pointed_to = duplicate_type_info(base->llvm_type); pointed_to->pointer_level--;
+            /* For getelementptr, the result type is the same as the first operand type */
+            emit_instruction("%%%s = getelementptr %s, %s %s, %s %s", res_reg, llvm_type_to_string(pointed_to), llvm_type_to_string(base->llvm_type), format_operand(base), llvm_type_to_string(index->llvm_type), format_operand(index));
             return create_llvm_value(LLVM_VALUE_REGISTER, res_reg, base->llvm_type);
         }
         case AST_MEMBER_ACCESS: {
-            ASTNode* object = expr->data.member_access.object; char* member_name = expr->data.member_access.member;
-            int is_ptr = expr->data.member_access.is_pointer_access; LLVMValue* base_ptr = NULL; TypeInfo* struct_type = NULL;
-            if (is_ptr) { 
-                base_ptr = gen_expression(object); 
-                if (!base_ptr || !base_ptr->llvm_type) return NULL;
-                struct_type = duplicate_type_info(base_ptr->llvm_type); struct_type->pointer_level--; 
-            }
-            else { 
-                base_ptr = gen_address(object); 
-                if (!base_ptr || !base_ptr->llvm_type) return NULL;
-                struct_type = duplicate_type_info(base_ptr->llvm_type); struct_type->pointer_level--; 
-            }
+            ASTNode* object = expr->data.member_access.object; char* member_name = expr->data.member_access.member; int is_ptr = expr->data.member_access.is_pointer_access;
+            LLVMValue* base_ptr = NULL; TypeInfo* struct_type = NULL;
+            if (is_ptr) { base_ptr = gen_expression(object); if (!base_ptr || !base_ptr->llvm_type) return NULL; struct_type = duplicate_type_info(base_ptr->llvm_type); struct_type->pointer_level--; }
+            else { base_ptr = gen_address(object); if (!base_ptr || !base_ptr->llvm_type) return NULL; struct_type = duplicate_type_info(base_ptr->llvm_type); struct_type->pointer_level--; }
             Symbol* member = struct_lookup_member(struct_type, member_name); if (!member) return NULL;
             char* res_reg = get_next_reg(); char* struct_type_str = llvm_type_to_string(struct_type);
             emit_instruction("%%%s = getelementptr %s, %s* %s, i32 0, i32 %d", res_reg, struct_type_str, struct_type_str, format_operand(base_ptr), member->index);
@@ -338,20 +543,15 @@ void gen_statement(ASTNode* stmt) {
     switch (stmt->type) {
         case AST_COMPOUND_STMT: { ASTNode* curr = stmt->data.compound_stmt.statements; while (curr) { gen_statement(curr); curr = curr->next; } break; }
         case AST_VARIABLE_DECL: {
-            Symbol* sym = create_symbol(stmt->data.variable_decl.name, stmt->data.variable_decl.type); symbol_add_local(sym);
-            char* type_str = llvm_type_to_string(sym->type); 
-            
-            char* unique_name = (char*)arena_alloc(g_compiler_arena, strlen(sym->name) + 16);
-            sprintf(unique_name, "%s.%d", sym->name, g_ctx.next_reg_id++);
-            sym->name = unique_name;
-
+            Symbol* sym = create_symbol(stmt->data.variable_decl.name, stmt->data.variable_decl.type);
+            sym->original_name = sym->name; /* save original name for lookup */
+            symbol_add_local(sym);
+            char* type_str = llvm_type_to_string(sym->type); char* unique_name = (char*)arena_alloc(g_compiler_arena, strlen(sym->name) + 16);
+            sprintf(unique_name, "%s.%d", sym->name, g_ctx.next_reg_id++); sym->name = unique_name;
             emit_instruction("%%%s = alloca %s", sym->name, type_str);
             if (stmt->data.variable_decl.initializer) {
                 LLVMValue* init = gen_expression(stmt->data.variable_decl.initializer);
-                if (init) {
-                    LLVMValue* casted = cast_to_type(init, sym->type);
-                    emit_instruction("store %s %s, %s* %%%s", type_str, format_operand(casted), type_str, sym->name);
-                }
+                if (init) { LLVMValue* casted = cast_to_type(init, sym->type); emit_instruction("store %s %s, %s* %%%s", type_str, format_operand(casted), type_str, sym->name); }
             }
             break;
         }
@@ -367,9 +567,12 @@ void gen_statement(ASTNode* stmt) {
         case AST_WHILE_STMT: {
             char* cond_label = get_next_label("while_cond"); char* body_label = get_next_label("while_body"); char* end_label = get_next_label("while_end");
             emit_instruction("br label %%%s", cond_label); fprintf(g_ctx.output, "%s:\n", cond_label);
-            LLVMValue* cond = gen_expression(stmt->data.while_stmt.condition); if (!cond) break;
-            char* cond_reg = get_next_reg(); emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0");
-            emit_instruction("br i1 %%%s, label %%%s, label %%%s", cond_reg, body_label, end_label);
+            ASTNode* cond_node = stmt->data.while_stmt.condition; if (cond_node && cond_node->type == AST_EXPRESSION_STMT) cond_node = cond_node->data.return_stmt.expression;
+            if (cond_node) {
+                LLVMValue* cond = gen_expression(cond_node);
+                if (cond) { char* cond_reg = get_next_reg(); emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0"); emit_instruction("br i1 %%%s, label %%%s, label %%%s", cond_reg, body_label, end_label); }
+                else emit_instruction("br label %%%s", body_label);
+            } else emit_instruction("br label %%%s", body_label);
             fprintf(g_ctx.output, "%s:\n", body_label); gen_statement(stmt->data.while_stmt.body); emit_instruction("br label %%%s", cond_label);
             fprintf(g_ctx.output, "%s:\n", end_label); break;
         }
@@ -378,7 +581,9 @@ void gen_statement(ASTNode* stmt) {
             gen_statement(stmt->data.for_stmt.init); emit_instruction("br label %%%s", cond_label); fprintf(g_ctx.output, "%s:\n", cond_label);
             ASTNode* cond_node = stmt->data.for_stmt.condition; if (cond_node && cond_node->type == AST_EXPRESSION_STMT) cond_node = cond_node->data.return_stmt.expression;
             if (cond_node) {
-                LLVMValue* cond = gen_expression(cond_node); if (cond) { char* cond_reg = get_next_reg(); emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0"); emit_instruction("br i1 %%%s, label %%%s, label %%%s", cond_reg, body_label, end_label); } else emit_instruction("br label %%%s", body_label);
+                LLVMValue* cond = gen_expression(cond_node);
+                if (cond) { char* cond_reg = get_next_reg(); emit_instruction("%%%s = icmp ne %s %s, %s", cond_reg, llvm_type_to_string(cond->llvm_type), format_operand(cond), (cond->llvm_type->pointer_level > 0) ? "null" : "0"); emit_instruction("br i1 %%%s, label %%%s, label %%%s", cond_reg, body_label, end_label); }
+                else emit_instruction("br label %%%s", body_label);
             } else emit_instruction("br label %%%s", body_label);
             fprintf(g_ctx.output, "%s:\n", body_label); gen_statement(stmt->data.for_stmt.body); emit_instruction("br label %%%s", incr_label);
             fprintf(g_ctx.output, "%s:\n", incr_label); if (stmt->data.for_stmt.update) { ASTNode* u = stmt->data.for_stmt.update; if (u->type == AST_EXPRESSION_STMT) u = u->data.return_stmt.expression; gen_expression(u); }
@@ -386,13 +591,8 @@ void gen_statement(ASTNode* stmt) {
         }
         case AST_RETURN_STMT: {
             LLVMValue* val = gen_expression(stmt->data.return_stmt.expression);
-            if (val) {
-                LLVMValue* casted = cast_to_type(val, g_ctx.current_function_return_type);
-                emit_instruction("ret %s %s", llvm_type_to_string(g_ctx.current_function_return_type), format_operand(casted));
-            } else {
-                emit_instruction("ret void");
-            }
-            break;
+            if (val) { LLVMValue* casted = cast_to_type(val, g_ctx.current_function_return_type); emit_instruction("ret %s %s", llvm_type_to_string(g_ctx.current_function_return_type), format_operand(casted)); }
+            else emit_instruction("ret void"); break;
         }
         case AST_EXPRESSION_STMT: { gen_expression(stmt->data.return_stmt.expression); break; }
         default: break;
@@ -402,8 +602,19 @@ void gen_statement(ASTNode* stmt) {
 void codegen_run(ASTNode* ast) {
     if (!ast) return;
     fprintf(g_ctx.output, "; Generated LLVM IR\ntarget triple = \"arm64-apple-darwin\"\n\n");
-    
-    /* Define structs in LLVM IR */
+    fprintf(g_ctx.output, "declare i32 @printf(i8*, ...)\n");
+    fprintf(g_ctx.output, "declare i32 @fprintf(i8*, i8*, ...)\n");
+    fprintf(g_ctx.output, "declare i8* @malloc(i64)\n");
+    fprintf(g_ctx.output, "declare void @free(i8*)\n");
+    fprintf(g_ctx.output, "declare i32 @exit(i32)\n");
+    fprintf(g_ctx.output, "declare i32 @clearerr(i8*)\n");
+    fprintf(g_ctx.output, "declare void @llvm.va_start(i8*)\n");
+    fprintf(g_ctx.output, "declare void @llvm.va_end(i8*)\n");
+    fprintf(g_ctx.output, "declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture writeonly, i8* nocapture readonly, i64, i1 immarg)\n");
+    fprintf(g_ctx.output, "declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i1 immarg)\n");
+    fprintf(g_ctx.output, "\n");
+    fprintf(g_ctx.output, "declare i32 @ferror(i8*)\n");
+    fprintf(g_ctx.output, "declare i32 @fileno(i8*)\n"); fprintf(g_ctx.output, "declare i32 @fread(i8*, i32, i64, i8**)\n"); fprintf(g_ctx.output, "declare i32 @getc(i8**)\n"); fprintf(g_ctx.output, "declare i32 @isatty(i32)\n");
     TypeInfo* curr_type = g_all_structs;
     while (curr_type) {
         if (curr_type->base_type == TYPE_STRUCT || curr_type->base_type == TYPE_UNION) {
@@ -415,31 +626,33 @@ void codegen_run(ASTNode* ast) {
         curr_type = curr_type->next;
     }
     fprintf(g_ctx.output, "\n");
-    /* Emit global variable declarations */
     Symbol* g_sym = g_global_symbols;
     while (g_sym) {
         if (g_sym->type->base_type == TYPE_FUNCTION && g_sym->type->storage_class != STORAGE_TYPEDEF) {
-            /* Check if this function is defined in our AST */
-            int defined = 0;
-            ASTNode* check = ast;
-            while (check) {
-                if (check->type == AST_FUNCTION_DEF && strcmp(check->data.function_def.name, g_sym->name) == 0) {
-                    defined = 1; break;
-                }
-                check = check->next;
-            }
+            int defined = 0; ASTNode* check = ast;
+            while (check) { if (check->type == AST_FUNCTION_DEF && strcmp(check->data.function_def.name, g_sym->name) == 0) { defined = 1; break; } check = check->next; }
             if (!defined) {
-                /* Deduplicate */
                 int found = 0; Symbol* prev = g_global_symbols;
                 while (prev != g_sym) { if (strcmp(prev->name, g_sym->name) == 0) { found = 1; break; } prev = prev->next; }
-                if (!found) {
-                    char* ret_type = llvm_type_to_string(g_sym->type->return_type);
-                    fprintf(g_ctx.output, "declare %s @%s(", ret_type, g_sym->name);
-                    /* For declare, we can just use ... or full types. Let's use ... for simplicity if it's external */
-                    fprintf(g_ctx.output, "...)\n");
+                if (!found && strcmp(g_sym->name, "printf") != 0 && strcmp(g_sym->name, "fprintf") != 0 &&
+                    strcmp(g_sym->name, "malloc") != 0 && strcmp(g_sym->name, "free") != 0 &&
+                    strcmp(g_sym->name, "exit") != 0 && strcmp(g_sym->name, "clearerr") != 0 &&
+                    strcmp(g_sym->name, "ferror") != 0 &&
+                    strcmp(g_sym->name, "fileno") != 0 && strcmp(g_sym->name, "isatty") != 0 && strcmp(g_sym->name, "getc") != 0 && strcmp(g_sym->name, "fread") != 0 &&
+                    strncmp(g_sym->name, "llvm.", 5) != 0) {
+                    fprintf(g_ctx.output, "declare %s @%s(", llvm_type_to_string(g_sym->type->return_type), g_sym->name);
+                    ASTNode* p = g_sym->type->parameters;
+                    while (p) {
+                        if (p->type == AST_VARIABLE_DECL) fprintf(g_ctx.output, "%s", llvm_type_to_string(p->data.variable_decl.type));
+                        else fprintf(g_ctx.output, "i32");
+                        if (p->next || g_sym->type->is_variadic) fprintf(g_ctx.output, ", ");
+                        p = p->next;
+                    }
+                    if (g_sym->type->is_variadic) fprintf(g_ctx.output, "...");
+                    fprintf(g_ctx.output, ")\n");
                 }
             }
-        } else if (g_sym->type->base_type != TYPE_FUNCTION && g_sym->type->storage_class != STORAGE_TYPEDEF) {
+        } else if (g_sym->type->base_type != TYPE_FUNCTION && g_sym->type->storage_class != STORAGE_TYPEDEF && !g_sym->is_enum_constant && g_sym->is_global) {
             int found = 0; Symbol* prev = g_global_symbols;
             while (prev != g_sym) { if (strcmp(prev->name, g_sym->name) == 0) { found = 1; break; } prev = prev->next; }
             if (!found) {
@@ -454,7 +667,7 @@ void codegen_run(ASTNode* ast) {
     ASTNode* curr = ast;
     while (curr) {
         if (curr->type == AST_FUNCTION_DEF) {
-            TypeInfo* func_type = create_function_type(curr->data.function_def.return_type, curr->data.function_def.parameters);
+            TypeInfo* func_type = create_function_type(curr->data.function_def.return_type, curr->data.function_def.parameters, curr->data.function_def.is_variadic);
             Symbol* sym = create_symbol(curr->data.function_def.name, func_type); sym->is_global = 1; symbol_add_global(sym);
         }
         curr = curr->next;
@@ -462,8 +675,7 @@ void codegen_run(ASTNode* ast) {
     curr = ast;
     while (curr) {
         if (curr->type == AST_FUNCTION_DEF) {
-            symbol_clear_locals();
-            g_ctx.current_function_return_type = curr->data.function_def.return_type;
+            symbol_clear_locals(); g_ctx.current_function_return_type = curr->data.function_def.return_type;
             fprintf(g_ctx.output, "define %s @%s(", llvm_type_to_string(curr->data.function_def.return_type), curr->data.function_def.name);
             ASTNode* param = curr->data.function_def.parameters; int p_idx = 0;
             while (param) { fprintf(g_ctx.output, "%s %%p%d%s", llvm_type_to_string(param->data.variable_decl.type), p_idx++, param->next ? ", " : ""); param = param->next; }
@@ -471,40 +683,40 @@ void codegen_run(ASTNode* ast) {
             param = curr->data.function_def.parameters; p_idx = 0;
             while (param) {
                 Symbol* sym = create_symbol(param->data.variable_decl.name, param->data.variable_decl.type); symbol_add_local(sym);
-                char* p_type = llvm_type_to_string(sym->type);
-                emit_instruction("%%%s = alloca %s", sym->name, p_type);
-                emit_instruction("store %s %%p%d, %s* %%%s", p_type, p_idx++, p_type, sym->name);
-                param = param->next;
+                char* p_type = llvm_type_to_string(sym->type); emit_instruction("%%%s = alloca %s", sym->name, p_type);
+                emit_instruction("store %s %%p%d, %s* %%%s", p_type, p_idx++, p_type, sym->name); param = param->next;
             }
             gen_statement(curr->data.function_def.body);
-            if (curr->data.function_def.return_type->base_type == TYPE_VOID && curr->data.function_def.return_type->pointer_level == 0) {
-                emit_instruction("ret void");
-            } else {
-                emit_instruction("ret %s %s", llvm_type_to_string(curr->data.function_def.return_type),
-                    (curr->data.function_def.return_type->pointer_level > 0) ? "null" : "0");
-            }
+            if (curr->data.function_def.return_type->base_type == TYPE_VOID && curr->data.function_def.return_type->pointer_level == 0) emit_instruction("ret void");
+            else emit_instruction("ret %s %s", llvm_type_to_string(curr->data.function_def.return_type), (curr->data.function_def.return_type->pointer_level > 0) ? "null" : "0");
             fprintf(g_ctx.output, "}\n\n");
         }
         curr = curr->next;
     }
     StringLiteral* sl = g_string_literals;
     while (sl) {
-        int true_len = 0; for (int i = 0; i < sl->length; i++) { if (sl->value[i] == '\\') { if (i + 1 < sl->length) { i++; true_len++; } } else true_len++; }
-        fprintf(g_ctx.output, "@%s = private unnamed_addr constant [%d x i8] c\"", sl->label, true_len + 1);
-        for (int i = 0; i < sl->length; i++) {
-            if (sl->value[i] == '\\') {
-                if (i + 1 < sl->length) {
-                    if (sl->value[i+1] == 'n') fprintf(g_ctx.output, "\\0A");
-                    else if (sl->value[i+1] == 't') fprintf(g_ctx.output, "\\09");
-                    else if (sl->value[i+1] == 'r') fprintf(g_ctx.output, "\\0D");
-                    else if (sl->value[i+1] == '0') fprintf(g_ctx.output, "\\00");
-                    else fprintf(g_ctx.output, "%c", sl->value[i+1]);
-                    i++;
-                }
-            } else if (sl->value[i] == '\"') fprintf(g_ctx.output, "\\22");
-            else fprintf(g_ctx.output, "%c", sl->value[i]);
+        int already_emitted = 0; StringLiteral* p_sl = g_string_literals;
+        while (p_sl != sl) { if (strcmp(p_sl->label, sl->label) == 0) { already_emitted = 1; break; } p_sl = p_sl->next; }
+        if (!already_emitted) {
+            int true_len = 0; for (int i = 0; i < sl->length; i++) { if (sl->value[i] == '\\') { if (i + 1 < sl->length) { i++; true_len++; } } else true_len++; }
+            fprintf(g_ctx.output, "@%s = private unnamed_addr constant [%d x i8] c", sl->label, true_len + 1); fputc(34, g_ctx.output);
+            for (int i = 0; i < sl->length; i++) {
+                if (sl->value[i] == '\\') {
+                    if (i + 1 < sl->length) {
+                        if (sl->value[i+1] == 'n') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "0A"); }
+                        else if (sl->value[i+1] == 't') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "09"); }
+                        else if (sl->value[i+1] == 'r') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "0D"); }
+                        else if (sl->value[i+1] == '0') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "00"); }
+                        else if (sl->value[i+1] == '\\') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "5C"); }
+                        else if (sl->value[i+1] == '"') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "22"); }
+                        else fprintf(g_ctx.output, "%c", sl->value[i+1]); i++;
+                    }
+                } else if (sl->value[i] == '\"') { fputc(92, g_ctx.output); fprintf(g_ctx.output, "22"); }
+                else fprintf(g_ctx.output, "%c", sl->value[i]);
+            }
+            fputc(92, g_ctx.output); fprintf(g_ctx.output, "00"); fputc(34, g_ctx.output); fprintf(g_ctx.output, ", align 1"); fputc(10, g_ctx.output);
         }
-        fprintf(g_ctx.output, "\\00\", align 1\n"); sl = sl->next;
+        sl = sl->next;
     }
 }
 

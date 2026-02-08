@@ -328,11 +328,23 @@ declaration
 				if (curr->type == AST_VARIABLE_DECL) {
 					p_level = curr->data.variable_decl.pointer_level;
 					if (curr->data.variable_decl.parameters) {
-						TypeInfo* func_type = create_function_type(full_type, curr->data.variable_decl.parameters);
+						TypeInfo* func_type = create_function_type(full_type, curr->data.variable_decl.parameters, curr->data.variable_decl.is_variadic);
 						full_type = func_type;
 					}
 					for (int i = 0; i < p_level; i++) {
 						full_type = create_pointer_type(full_type);
+					}
+					/* Handle array dimensions */
+					ASTNode* dims = curr->data.variable_decl.array_dimensions;
+					while (dims) {
+						int size = evaluate_constant_node(dims);
+						/* If size is 0, try to infer from initializer list */
+						if (size == 0 && curr->data.variable_decl.initializer &&
+							curr->data.variable_decl.initializer->type == AST_INITIALIZER_LIST) {
+							size = curr->data.variable_decl.initializer->data.initializer_list.count;
+						}
+						full_type = create_array_type(full_type, size);
+						dims = dims->next;
 					}
 					curr->data.variable_decl.type = full_type;
 
@@ -342,7 +354,7 @@ declaration
 						if (sym->is_global) symbol_add_global(sym);
 						else symbol_add_local(sym);
 					} else {
-						printf("; Adding global symbol: %s, type=%d\n", curr->data.variable_decl.name, full_type->base_type);
+						/* printf("; Adding global symbol: %s, type=%d\n", curr->data.variable_decl.name, full_type->base_type); */
 						Symbol* sym = create_symbol(curr->data.variable_decl.name, full_type);
 						sym->is_global = (g_local_symbols == NULL);
 						if (sym->is_global) symbol_add_global(sym);
@@ -354,9 +366,9 @@ declaration
 						full_type = create_pointer_type(full_type);
 					}
 					curr->data.function_def.return_type = full_type;
-					
+
 					/* Add function to symbol table */
-					TypeInfo* func_type = create_function_type(full_type, curr->data.function_def.parameters);
+					TypeInfo* func_type = create_function_type(full_type, curr->data.function_def.parameters, curr->data.function_def.is_variadic);
 					Symbol* sym = create_symbol(curr->data.function_def.name, func_type);
 					sym->is_global = (g_local_symbols == NULL);
 					if (sym->is_global) symbol_add_global(sym);
@@ -389,6 +401,12 @@ declaration_specifiers
 			} else {
 				$$ = $2;
 				if ($1) {
+					/* Handle unsigned/signed modifiers */
+					if ($1->base_type == TYPE_UNSIGNED) {
+						$$->is_unsigned = 1;
+					} else if ($1->base_type == TYPE_SIGNED) {
+						$$->is_unsigned = 0;
+					}
 					/* Smarter merging */
 					if ($1->base_type == TYPE_LONG || $$->base_type == TYPE_LONG) {
 						$$->base_type = TYPE_LONG;
@@ -398,10 +416,12 @@ declaration_specifiers
 						$$->base_type = TYPE_CHAR;
 					} else if ($1->base_type == TYPE_BOOL || $$->base_type == TYPE_BOOL) {
 						$$->base_type = TYPE_BOOL;
+					} else if ($1->base_type == TYPE_UNSIGNED || $1->base_type == TYPE_SIGNED) {
+						/* Keep existing base type, just set is_unsigned above */
 					} else if ($1->base_type != TYPE_VOID) {
 						$$->base_type = $1->base_type;
 					}
-					
+
 					/* Preserve other fields if not already set */
 					if (!$$->struct_name) $$->struct_name = $1->struct_name;
 					if (!$$->struct_members) $$->struct_members = $1->struct_members;
@@ -447,6 +467,7 @@ init_declarator
 					$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
 					$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
 					$$->data.variable_decl.parameters = $1->data.identifier.parameters;
+					$$->data.variable_decl.is_variadic = $1->data.identifier.is_variadic;
 				} else {
 					$$ = create_function_decl_node(NULL, $1->data.identifier.name, $1->data.identifier.parameters, $1->data.identifier.is_variadic);
 					$$->data.function_def.pointer_level = $1->data.identifier.pointer_level;
@@ -463,6 +484,7 @@ init_declarator
 				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
 				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
 				$$->data.variable_decl.parameters = $1->data.identifier.parameters;
+				$$->data.variable_decl.is_variadic = $1->data.identifier.is_variadic;
 			} else {
 				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
 				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
@@ -498,7 +520,11 @@ type_specifier
             if (sym && sym->type) {
 				if ((sym->type->base_type == TYPE_STRUCT || sym->type->base_type == TYPE_UNION) && sym->type->struct_name) {
 					Symbol* tag = tag_lookup(sym->type->struct_name);
-					if (tag) $$ = duplicate_type_info(tag->type);
+					if (tag) {
+						$$ = duplicate_type_info(tag->type);
+						/* Preserve pointer level from typedef */
+						$$->pointer_level = sym->type->pointer_level;
+					}
 					else $$ = duplicate_type_info(sym->type);
 				} else {
 					$$ = duplicate_type_info(sym->type);
@@ -565,7 +591,7 @@ struct_or_union_specifier
 			if (tag) {
 				$$ = duplicate_type_info(tag->type);
 			} else {
-				printf("; Forward decl struct: %s\n", $2);
+				/* printf("; Forward decl struct: %s\n", $2); */
 				TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
 				Symbol* new_tag = create_symbol($2, type);
 				tag_add(new_tag);
@@ -631,7 +657,7 @@ struct_declaration
 				if (!head) head = var;
 				if (tail) tail->next = var;
 				tail = var;
-				
+
 				curr_decl = curr_decl->next;
 			}
 			free_type_info($1);
@@ -807,7 +833,7 @@ direct_declarator
 				$$->data.identifier.is_function_pointer = 1;
 			}
 			/* Handle (void) specifically */
-			if ($3.head && $3.head->type == AST_VARIABLE_DECL && 
+			if ($3.head && $3.head->type == AST_VARIABLE_DECL &&
 				$3.head->data.variable_decl.type->base_type == TYPE_VOID &&
 				$3.head->data.variable_decl.type->pointer_level == 0 &&
 				$3.head->next == NULL) {
@@ -880,11 +906,17 @@ parameter_declaration
 			TypeInfo* full_type = duplicate_type_info($1);
 			int p_level = $2->data.identifier.pointer_level;
 			if ($2->data.identifier.parameters) {
-				TypeInfo* func_type = create_function_type(full_type, $2->data.identifier.parameters);
+				TypeInfo* func_type = create_function_type(full_type, $2->data.identifier.parameters, $2->data.identifier.is_variadic);
 				full_type = func_type;
 			}
 			for (int i = 0; i < p_level; i++) {
 				full_type = create_pointer_type(full_type);
+			}
+			/* Handle array dimensions for parameter (T[] -> T*) */
+			ASTNode* dims = $2->data.identifier.array_dimensions;
+			while (dims) {
+				full_type = create_pointer_type(full_type);
+				dims = dims->next;
 			}
 			$$ = create_variable_decl_node(full_type, $2->data.identifier.name, NULL);
 		}
@@ -1195,14 +1227,36 @@ function_definition
 			}
 			$$ = create_function_def_node(full_type, $2->data.identifier.name, $3, $4, $2->data.identifier.is_variadic);
 		}
-	| declaration_specifiers declarator compound_statement
+	| declaration_specifiers declarator
+		{
+			/* Register parameters in local scope before parsing body */
+			symbol_clear_locals();
+			if ($2->data.identifier.parameters) {
+				ASTNode* p = $2->data.identifier.parameters;
+				while (p) {
+					if (p->type == AST_VARIABLE_DECL) {
+						Symbol* s = create_symbol(p->data.variable_decl.name, p->data.variable_decl.type);
+						s->is_parameter = 1;
+						symbol_add_local(s);
+					}
+					p = p->next;
+				}
+			}
+			/* Even if no params, ensure local scope is active */
+			if (g_local_symbols == NULL) {
+				Symbol* dummy = create_symbol("", create_type_info(TYPE_VOID));
+				symbol_add_local(dummy);
+			}
+		}
+		compound_statement
 		{
 			TypeInfo* full_type = $1;
 			for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
 				full_type = create_pointer_type(full_type);
 			}
 			ASTNode* params = ($2->data.identifier.parameters) ? $2->data.identifier.parameters : NULL;
-			$$ = create_function_def_node(full_type, $2->data.identifier.name, params, $3, $2->data.identifier.is_variadic);
+			$$ = create_function_def_node(full_type, $2->data.identifier.name, params, $4, $2->data.identifier.is_variadic);
+			symbol_clear_locals();
 		}
 	| declarator declaration_list compound_statement
 		{

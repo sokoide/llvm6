@@ -34,7 +34,7 @@ void test_member_access_codegen() {
     char line[256];
     int found_gep = 0;
     while (fgets(line, sizeof(line), in)) {
-        if (strstr(line, "getelementptr %struct.Point, %struct.Point* %p, i32 0, i32 0")) {
+        if (strstr(line, "getelementptr %struct.Point, %struct.Point* %p.0, i32 0, i32 0")) {
             found_gep = 1;
         }
     }
