@@ -9,7 +9,7 @@
 - [x] Task: Verify expression support with existing `examples/` and new test fixtures
 - [x] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
-## Phase 2: Type System Enhancements (Typedef and Enum) [checkpoint: ca31008]
+## Phase 2: Type System Enhancements (Typedef and Enum) [checkpoint: 0b05059]
 データ構造の定義に不可欠な `typedef` と `enum` を実装する。
 
 - [x] Task: Implement `enum` parsing and value assignment in symbol table
@@ -18,14 +18,14 @@
 - [x] Task: Verify type aliasing logic with complex declaration tests
 - [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
-## Phase 3: Structural Support (Struct and Union)
+## Phase 3: Structural Support (Struct and Union) [checkpoint: 0b05059]
 ASTやシンボルテーブルの内部構造を扱えるよう、構造体と共用体を完全にサポートする。
 
-- [ ] Task: Implement full struct/union member layout and alignment logic
-- [ ] Task: Support nested structs and anonymous structs/unions (if needed)
-- [ ] Task: Implement arrow operator (`->`) and member access code generation
-- [ ] Task: Verify structural access with unit tests and complex fixtures
-- [ ] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)
+- [x] Task: Implement full struct/union member layout and alignment logic
+- [x] Task: Support nested structs and anonymous structs/unions (if needed)
+- [x] Task: Implement arrow operator (`->`) and member access code generation
+- [x] Task: Verify structural access with unit tests and complex fixtures
+- [x] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)
 
 ## Phase 4: Advanced Logic and Function Pointers
 セルフホストに必要な残りの論理機能と関数ポインタを実装する。

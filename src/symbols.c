@@ -2,17 +2,16 @@
 
 Symbol* g_global_symbols = NULL;
 Symbol* g_local_symbols = NULL;
+Symbol* g_tags = NULL;
 
 void symbol_add_global(Symbol* symbol) {
     if (!symbol) return;
-    printf("Adding global symbol: %s\n", symbol->name);
     symbol->next = g_global_symbols;
     g_global_symbols = symbol;
 }
 
 void symbol_add_local(Symbol* symbol) {
     if (!symbol) return;
-    printf("Adding local symbol: %s\n", symbol->name);
     /* Check for duplicate symbols in local scope */
     Symbol* existing = g_local_symbols;
     while (existing) {
@@ -28,13 +27,10 @@ void symbol_add_local(Symbol* symbol) {
 Symbol* symbol_lookup(const char* name) {
     if (!name) return NULL;
 
-    printf("Looking up: %s... ", name);
-
     /* Check local symbols first */
     Symbol* symbol = g_local_symbols;
     while (symbol) {
         if (symbol->name && strcmp(symbol->name, name) == 0) {
-            printf("Found local\n");
             return symbol;
         }
         symbol = symbol->next;
@@ -44,13 +40,29 @@ Symbol* symbol_lookup(const char* name) {
     symbol = g_global_symbols;
     while (symbol) {
         if (symbol->name && strcmp(symbol->name, name) == 0) {
-            printf("Found global\n");
             return symbol;
         }
         symbol = symbol->next;
     }
 
-    printf("Not found\n");
+    return NULL;
+}
+
+void tag_add(Symbol* symbol) {
+    if (!symbol) return;
+    symbol->next = g_tags;
+    g_tags = symbol;
+}
+
+Symbol* tag_lookup(const char* name) {
+    if (!name) return NULL;
+    Symbol* symbol = g_tags;
+    while (symbol) {
+        if (symbol->name && strcmp(symbol->name, name) == 0) {
+            return symbol;
+        }
+        symbol = symbol->next;
+    }
     return NULL;
 }
 
@@ -61,6 +73,7 @@ void symbol_clear_locals(void) {
 void symbol_clear_all(void) {
     g_local_symbols = NULL;
     g_global_symbols = NULL;
+    g_tags = NULL;
 }
 
 void symbol_init_builtins(void) {

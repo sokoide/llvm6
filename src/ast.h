@@ -131,7 +131,10 @@ struct TypeInfo {
     int array_size;
     struct TypeInfo* return_type; /* for function types */
     struct ASTNode* parameters;   /* for function types */
-    char* struct_name;            /* for struct/union/enum types */
+    char* struct_name;            /* for struct/union/enum tags */
+    struct Symbol* struct_members;
+    int size;
+    int alignment;
     struct TypeInfo* next;        /* for type lists */
 };
 
@@ -139,7 +142,8 @@ struct TypeInfo {
 struct Symbol {
     char* name;
     TypeInfo* type;
-    int offset; /* for local variables */
+    int offset; /* for local variables or struct member offset in bytes */
+    int index;  /* for struct member index */
     int is_global;
     int is_parameter; /* true if this is a function parameter */
     int is_array;     /* true if this is an array */
@@ -327,6 +331,12 @@ ASTNode* create_function_decl_node(TypeInfo* return_type, const char* name, ASTN
 ASTNode* create_function_def_node(TypeInfo* return_type, const char* name, ASTNode* parameters, ASTNode* body, int is_variadic);
 
 TypeInfo* create_type_info(DataType base_type);
+int get_type_size(TypeInfo* type);
+int get_type_alignment(TypeInfo* type);
+TypeInfo* create_struct_type(const char* tag, int is_union);
+void struct_add_member(TypeInfo* type, const char* name, TypeInfo* member_type);
+void struct_finish_layout(TypeInfo* type);
+Symbol* struct_lookup_member(TypeInfo* type, const char* name);
 TypeInfo* duplicate_type_info(TypeInfo* original);
 TypeInfo* create_pointer_type(TypeInfo* base_type);
 TypeInfo* create_array_type(TypeInfo* base_type, int size);

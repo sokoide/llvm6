@@ -72,12 +72,12 @@ int yyerror(const char* s);
 %type <ast_node> declaration_list expression_statement
 %type <ast_node> selection_statement iteration_statement jump_statement
 %type <ast_node> translation_unit external_declaration function_definition
-%type <ast_node> struct_or_union_specifier struct_declaration_list
+%type <ast_node> struct_declaration_list
 %type <ast_node> struct_declaration
-%type <ast_node> struct_declarator_list struct_declarator enum_specifier
+%type <ast_node> struct_declarator_list struct_declarator
 %type <ast_node> enumerator_list enumerator
 
-%type <type_info> storage_class_specifier type_specifier type_qualifier declaration_specifiers specifier_qualifier_list
+%type <type_info> storage_class_specifier type_specifier type_qualifier declaration_specifiers specifier_qualifier_list struct_or_union_specifier enum_specifier
 %type <binary_op> assignment_operator
 %type <unary_op> unary_operator
 %type <str_val> struct_or_union
@@ -455,8 +455,8 @@ type_specifier
 	| DOUBLE    { $$ = create_type_info(TYPE_DOUBLE); }
 	| SIGNED    { $$ = create_type_info(TYPE_SIGNED); }
 	| UNSIGNED  { $$ = create_type_info(TYPE_UNSIGNED); }
-	| struct_or_union_specifier { $$ = NULL; }
-	| enum_specifier            { $$ = NULL; }
+	| struct_or_union_specifier { $$ = $1; }
+	| enum_specifier            { $$ = $1; }
 	| TYPE_NAME
         {
             Symbol* sym = symbol_lookup($1);
@@ -470,11 +470,46 @@ type_specifier
 
 struct_or_union_specifier
 	: struct_or_union IDENTIFIER '{' struct_declaration_list '}'
-		{ $$ = NULL; }
+		{
+			TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
+			ASTNode* curr = $4;
+			while (curr) {
+				if (curr->type == AST_VARIABLE_DECL) {
+					struct_add_member(type, curr->data.variable_decl.name, curr->data.variable_decl.type);
+				}
+				curr = curr->next;
+			}
+			struct_finish_layout(type);
+			Symbol* tag = create_symbol($2, type);
+			tag_add(tag);
+			$$ = type;
+		}
 	| struct_or_union '{' struct_declaration_list '}'
-		{ $$ = NULL; }
+		{
+			TypeInfo* type = create_struct_type(NULL, strcmp($1, "union") == 0);
+			ASTNode* curr = $3;
+			while (curr) {
+				if (curr->type == AST_VARIABLE_DECL) {
+					struct_add_member(type, curr->data.variable_decl.name, curr->data.variable_decl.type);
+				}
+				curr = curr->next;
+			}
+			struct_finish_layout(type);
+			$$ = type;
+		}
 	| struct_or_union IDENTIFIER
-		{ $$ = NULL; }
+		{
+			Symbol* tag = tag_lookup($2);
+			if (tag) {
+				$$ = duplicate_type_info(tag->type);
+			} else {
+				/* Forward declaration */
+				TypeInfo* type = create_struct_type($2, strcmp($1, "union") == 0);
+				Symbol* new_tag = create_symbol($2, type);
+				tag_add(new_tag);
+				$$ = type;
+			}
+		}
 	;
 
 struct_or_union
@@ -486,12 +521,48 @@ struct_declaration_list
 	: struct_declaration
 		{ $$ = $1; }
 	| struct_declaration_list struct_declaration
-		{ $$ = $1; /* Chain declarations */ }
+		{
+			if ($1) {
+				$$ = $1;
+				ASTNode* curr = $1;
+				while (curr->next) curr = curr->next;
+				curr->next = $2;
+			} else {
+				$$ = $2;
+			}
+		}
 	;
 
 struct_declaration
 	: specifier_qualifier_list struct_declarator_list ';'
-		{ $$ = $2; }
+		{
+			/* Apply type to all declarators and return as variable decls */
+			ASTNode* head = NULL;
+			ASTNode* tail = NULL;
+			ASTNode* curr_decl = $2;
+			while (curr_decl) {
+				TypeInfo* full_type = duplicate_type_info($1);
+				int p_level = curr_decl->data.identifier.pointer_level;
+				for (int i = 0; i < p_level; i++) {
+					full_type = create_pointer_type(full_type);
+				}
+				/* Handle arrays in structs */
+				ASTNode* dims = curr_decl->data.identifier.array_dimensions;
+				while (dims) {
+					full_type = create_array_type(full_type, evaluate_constant_node(dims));
+					dims = dims->next;
+				}
+
+				ASTNode* var = create_variable_decl_node(full_type, curr_decl->data.identifier.name, NULL);
+				if (!head) head = var;
+				if (tail) tail->next = var;
+				tail = var;
+				
+				curr_decl = curr_decl->next;
+			}
+			free_type_info($1);
+			$$ = head;
+		}
 	;
 
 specifier_qualifier_list
@@ -531,11 +602,24 @@ struct_declarator
 
 enum_specifier
 	: ENUM '{' { g_next_enum_value = 0; } enumerator_list '}'
-		{ $$ = NULL; }
+		{ $$ = create_type_info(TYPE_ENUM); }
 	| ENUM IDENTIFIER '{' { g_next_enum_value = 0; } enumerator_list '}'
-		{ $$ = NULL; }
+		{
+			$$ = create_type_info(TYPE_ENUM);
+			$$->struct_name = $2;
+			tag_add(create_symbol($2, $$));
+		}
 	| ENUM IDENTIFIER
-		{ $$ = NULL; }
+		{
+			Symbol* tag = tag_lookup($2);
+			if (tag) {
+				$$ = duplicate_type_info(tag->type);
+			} else {
+				$$ = create_type_info(TYPE_ENUM);
+				$$->struct_name = $2;
+				tag_add(create_symbol($2, $$));
+			}
+		}
 	;
 
 enumerator_list

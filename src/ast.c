@@ -1,14 +1,27 @@
 #include "ast.h"
+#include "memory.h"
+#include "error.h"
+#include "common.h"
+#include <ctype.h>
 
 ASTNode* create_ast_node(ASTNodeType type) {
     ASTNode* node = (ASTNode*)arena_alloc(g_compiler_arena, sizeof(ASTNode));
     node->type = type;
+    node->data_type = NULL;
+    node->next = NULL;
+    node->line = 0;   /* Should be set by lexer */
+    node->column = 0; /* Should be set by lexer */
     return node;
 }
 
 ASTNode* create_identifier_node(const char* name) {
     ASTNode* node = create_ast_node(AST_IDENTIFIER);
     node->data.identifier.name = arena_strdup(g_compiler_arena, name);
+    node->data.identifier.symbol = NULL;
+    node->data.identifier.parameters = NULL;
+    node->data.identifier.is_variadic = 0;
+    node->data.identifier.pointer_level = 0;
+    node->data.identifier.array_dimensions = NULL;
     return node;
 }
 
@@ -16,44 +29,23 @@ ASTNode* create_constant_node(int value, DataType type) {
     ASTNode* node = create_ast_node(AST_CONSTANT);
     node->data.constant.value.int_val = value;
     node->data.constant.const_type = type;
+    node->data_type = create_type_info(type);
     return node;
 }
 
 ASTNode* create_string_literal_node(const char* string) {
     ASTNode* node = create_ast_node(AST_STRING_LITERAL);
-
-    size_t len = strlen(string);
-    char* processed = (char*)arena_alloc(g_compiler_arena, len + 1);
-
-    size_t j = 0;
-    /* Skip first quote (i=1), end before last quote (i < len-1) */
-    for (size_t i = 1; i < len - 1; i++) {
-        if (string[i] == '\\' && i + 1 < len - 1) {
-            char c = string[i+1];
-            switch (c) {
-                case 'n': processed[j++] = '\n'; break;
-                case 't': processed[j++] = '\t'; break;
-                case 'r': processed[j++] = '\r'; break;
-                case '0': processed[j++] = '\0'; break;
-                case '\\': processed[j++] = '\\'; break;
-                case '\'': processed[j++] = '\''; break;
-                case '"': processed[j++] = '"'; break;
-                default: processed[j++] = c; break;
-            }
-            i++;
-        } else {
-            processed[j++] = string[i];
-        }
-    }
-    processed[j] = '\0';
-
-    node->data.string_literal.string = processed;
-    node->data.string_literal.length = (int)j;
+    node->data.string_literal.string = arena_strdup(g_compiler_arena, string);
+    node->data.string_literal.length = strlen(string);
+    node->data_type = create_pointer_type(create_type_info(TYPE_CHAR));
     return node;
 }
 
 int parse_constant_value(const char* s) {
     if (!s) return 0;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        return (int)strtol(s, NULL, 16);
+    }
     if (s[0] == '\'') {
         if (s[1] == '\\') {
             switch (s[2]) {
@@ -61,15 +53,12 @@ int parse_constant_value(const char* s) {
                 case 't': return '\t';
                 case 'r': return '\r';
                 case '0': return '\0';
-                case '\\': return '\\';
-                case '\'': return '\'';
-                case '\"': return '\"';
                 default: return s[2];
             }
         }
         return s[1];
     }
-    return (int)strtol(s, NULL, 0);
+    return atoi(s);
 }
 
 int evaluate_constant_node(ASTNode* node) {
@@ -117,6 +106,7 @@ ASTNode* create_function_call_node(ASTNode* function, ASTNode* arguments) {
 ASTNode* create_compound_stmt_node(ASTNode* statements) {
     ASTNode* node = create_ast_node(AST_COMPOUND_STMT);
     node->data.compound_stmt.statements = statements;
+    node->data.compound_stmt.num_statements = 0; /* Could count */
     return node;
 }
 
@@ -155,6 +145,8 @@ ASTNode* create_variable_decl_node(TypeInfo* type, const char* name, ASTNode* in
     node->data.variable_decl.type = type;
     node->data.variable_decl.name = arena_strdup(g_compiler_arena, name);
     node->data.variable_decl.initializer = initializer;
+    node->data.variable_decl.pointer_level = 0;
+    node->data.variable_decl.array_dimensions = NULL;
     return node;
 }
 
@@ -163,7 +155,9 @@ ASTNode* create_function_decl_node(TypeInfo* return_type, const char* name, ASTN
     node->data.function_def.return_type = return_type;
     node->data.function_def.name = arena_strdup(g_compiler_arena, name);
     node->data.function_def.parameters = parameters;
+    node->data.function_def.body = NULL;
     node->data.function_def.is_variadic = is_variadic;
+    node->data.function_def.pointer_level = 0;
     return node;
 }
 
@@ -174,33 +168,38 @@ ASTNode* create_function_def_node(TypeInfo* return_type, const char* name, ASTNo
     node->data.function_def.parameters = parameters;
     node->data.function_def.body = body;
     node->data.function_def.is_variadic = is_variadic;
+    node->data.function_def.pointer_level = 0;
     return node;
 }
 
 TypeInfo* create_type_info(DataType base_type) {
     TypeInfo* type = (TypeInfo*)arena_alloc(g_compiler_arena, sizeof(TypeInfo));
     type->base_type = base_type;
+    type->qualifiers = QUAL_NONE;
+    type->storage_class = STORAGE_NONE;
+    type->pointer_level = 0;
+    type->array_size = 0;
+    type->return_type = NULL;
+    type->parameters = NULL;
+    type->struct_name = NULL;
+    type->struct_members = NULL;
+    type->size = 0;
+    type->alignment = 0;
+    type->next = NULL;
     return type;
 }
 
 TypeInfo* duplicate_type_info(TypeInfo* original) {
     if (!original) return NULL;
-    TypeInfo* copy = (TypeInfo*)arena_alloc(g_compiler_arena, sizeof(TypeInfo));
-    memcpy(copy, original, sizeof(TypeInfo));
-    if (original->return_type) copy->return_type = duplicate_type_info(original->return_type);
-    if (original->struct_name) copy->struct_name = arena_strdup(g_compiler_arena, original->struct_name);
-    if (original->next) copy->next = duplicate_type_info(original->next);
-    return copy;
+    TypeInfo* type = (TypeInfo*)arena_alloc(g_compiler_arena, sizeof(TypeInfo));
+    memcpy(type, original, sizeof(TypeInfo));
+    type->next = NULL; /* Don't copy the next pointer */
+    return type;
 }
 
 TypeInfo* create_pointer_type(TypeInfo* base_type) {
-    TypeInfo* type = create_type_info(TYPE_POINTER);
-    if (base_type) {
-        type->return_type = duplicate_type_info(base_type);
-        type->pointer_level = (base_type->base_type == TYPE_POINTER) ? base_type->pointer_level + 1 : 1;
-    } else {
-        type->pointer_level = 1;
-    }
+    TypeInfo* type = duplicate_type_info(base_type);
+    type->pointer_level++;
     return type;
 }
 
@@ -218,39 +217,29 @@ TypeInfo* create_function_type(TypeInfo* return_type, ASTNode* parameters) {
     return type;
 }
 
-/* Cleanup is handled by arena_destroy */
-void free_ast_node(ASTNode* node) { (void)node; }
-void free_type_info(TypeInfo* type) { (void)type; }
+void free_ast_node(ASTNode* node) {
+    (void)node; /* Managed by arena */
+}
 
-static const char* node_type_to_string(ASTNodeType type) {
-    switch (type) {
-        case AST_IDENTIFIER: return "IDENTIFIER";
-        case AST_CONSTANT: return "CONSTANT";
-        case AST_STRING_LITERAL: return "STRING_LITERAL";
-        case AST_BINARY_OP: return "BINARY_OP";
-        case AST_UNARY_OP: return "UNARY_OP";
-        case AST_FUNCTION_CALL: return "FUNCTION_CALL";
-        case AST_IF_STMT: return "IF_STMT";
-        case AST_WHILE_STMT: return "WHILE_STMT";
-        case AST_FOR_STMT: return "FOR_STMT";
-        case AST_RETURN_STMT: return "RETURN_STMT";
-        case AST_VARIABLE_DECL: return "VARIABLE_DECL";
-        case AST_FUNCTION_DECL: return "FUNCTION_DECL";
-        case AST_FUNCTION_DEF: return "FUNCTION_DEF";
-        case AST_COMPOUND_STMT: return "COMPOUND_STMT";
-        default: return "UNKNOWN";
-    }
+void free_type_info(TypeInfo* type) {
+    (void)type; /* Managed by arena */
 }
 
 static const char* data_type_to_string(DataType type) {
     switch (type) {
         case TYPE_VOID: return "void";
+        case TYPE_BOOL: return "bool";
         case TYPE_CHAR: return "char";
         case TYPE_SHORT: return "short";
         case TYPE_INT: return "int";
         case TYPE_LONG: return "long";
         case TYPE_FLOAT: return "float";
         case TYPE_DOUBLE: return "double";
+        case TYPE_SIGNED: return "signed";
+        case TYPE_UNSIGNED: return "unsigned";
+        case TYPE_STRUCT: return "struct";
+        case TYPE_UNION: return "union";
+        case TYPE_ENUM: return "enum";
         case TYPE_POINTER: return "pointer";
         case TYPE_ARRAY: return "array";
         case TYPE_FUNCTION: return "function";
@@ -260,30 +249,35 @@ static const char* data_type_to_string(DataType type) {
 
 void print_ast(ASTNode* node, int indent) {
     if (!node) return;
+
     for (int i = 0; i < indent; i++) printf("  ");
-    printf("%s", node_type_to_string(node->type));
 
     switch (node->type) {
-        case AST_IDENTIFIER: printf(" (%s)", node->data.identifier.name); break;
-        case AST_CONSTANT: printf(" (%d)", node->data.constant.value.int_val); break;
-        case AST_STRING_LITERAL: printf(" (\"%s\")", node->data.string_literal.string); break;
-        case AST_VARIABLE_DECL: printf(" (%s)", node->data.variable_decl.name); break;
-        case AST_FUNCTION_DECL:
-        case AST_FUNCTION_DEF: printf(" (%s)", node->data.function_def.name); break;
-        default: break;
-    }
-    printf("\n");
-
-    if (node->type == AST_BINARY_OP) {
-        print_ast(node->data.binary_op.left, indent + 1);
-        print_ast(node->data.binary_op.right, indent + 1);
-    } else if (node->type == AST_UNARY_OP) {
-        print_ast(node->data.unary_op.operand, indent + 1);
-    } else if (node->type == AST_FUNCTION_CALL) {
-        print_ast(node->data.function_call.function, indent + 1);
-        print_ast(node->data.function_call.arguments, indent + 1);
-    } else if (node->type == AST_COMPOUND_STMT) {
-        print_ast(node->data.compound_stmt.statements, indent + 1);
+        case AST_IDENTIFIER:
+            printf("Identifier: %s\n", node->data.identifier.name);
+            break;
+        case AST_CONSTANT:
+            printf("Constant: %d\n", node->data.constant.value.int_val);
+            break;
+        case AST_VARIABLE_DECL:
+            printf("Variable Decl: %s\n", node->data.variable_decl.name);
+            break;
+        case AST_FUNCTION_DEF:
+            printf("Function Def: %s\n", node->data.function_def.name);
+            print_ast(node->data.function_def.body, indent + 1);
+            break;
+        case AST_BINARY_OP:
+            printf("Binary Op: %d\n", node->data.binary_op.op);
+            print_ast(node->data.binary_op.left, indent + 1);
+            print_ast(node->data.binary_op.right, indent + 1);
+            break;
+        case AST_RETURN_STMT:
+            printf("Return\n");
+            print_ast(node->data.return_stmt.expression, indent + 1);
+            break;
+        default:
+            printf("Node type: %d\n", node->type);
+            break;
     }
 
     if (node->next) print_ast(node->next, indent);
@@ -300,7 +294,119 @@ Symbol* create_symbol(const char* name, TypeInfo* type) {
     Symbol* symbol = (Symbol*)arena_alloc(g_compiler_arena, sizeof(Symbol));
     symbol->name = arena_strdup(g_compiler_arena, name);
     symbol->type = type;
+    symbol->offset = 0;
+    symbol->is_global = 0;
+    symbol->is_parameter = 0;
+    symbol->is_array = 0;
+    symbol->is_enum_constant = 0;
+    symbol->enum_value = 0;
+    symbol->next = NULL;
     return symbol;
 }
 
-void free_symbol(Symbol* symbol) { (void)symbol; }
+int get_type_size(TypeInfo* type) {
+    if (!type) return 0;
+    if (type->pointer_level > 0) return 8; /* 64-bit pointers */
+    
+    switch (type->base_type) {
+        case TYPE_VOID: return 0;
+        case TYPE_BOOL: return 1;
+        case TYPE_CHAR: return 1;
+        case TYPE_SHORT: return 2;
+        case TYPE_INT: return 4;
+        case TYPE_LONG: return 8;
+        case TYPE_FLOAT: return 4;
+        case TYPE_DOUBLE: return 8;
+        case TYPE_STRUCT: return type->size;
+        case TYPE_UNION: return type->size;
+        case TYPE_ENUM: return 4;
+        case TYPE_ARRAY: return get_type_size(type->return_type) * type->array_size;
+        default: return 0;
+    }
+}
+
+int get_type_alignment(TypeInfo* type) {
+    if (!type) return 1;
+    if (type->pointer_level > 0) return 8;
+    
+    switch (type->base_type) {
+        case TYPE_BOOL: return 1;
+        case TYPE_CHAR: return 1;
+        case TYPE_SHORT: return 2;
+        case TYPE_INT: return 4;
+        case TYPE_LONG: return 8;
+        case TYPE_FLOAT: return 4;
+        case TYPE_DOUBLE: return 8;
+        case TYPE_STRUCT: return type->alignment;
+        case TYPE_UNION: return type->alignment;
+        case TYPE_ENUM: return 4;
+        case TYPE_ARRAY: return get_type_alignment(type->return_type);
+        default: return 1;
+    }
+}
+
+static int g_anon_type_id = 0;
+
+TypeInfo* create_struct_type(const char* tag, int is_union) {
+    TypeInfo* type = create_type_info(is_union ? TYPE_UNION : TYPE_STRUCT);
+    if (tag) {
+        type->struct_name = arena_strdup(g_compiler_arena, tag);
+    } else {
+        char buf[32];
+        sprintf(buf, "anon.%d", g_anon_type_id++);
+        type->struct_name = arena_strdup(g_compiler_arena, buf);
+    }
+    return type;
+}
+
+void struct_add_member(TypeInfo* type, const char* name, TypeInfo* member_type) {
+    Symbol* member = create_symbol(name, member_type);
+    if (!type->struct_members) {
+        type->struct_members = member;
+    } else {
+        Symbol* curr = type->struct_members;
+        while (curr->next) curr = curr->next;
+        curr->next = member;
+    }
+}
+
+void struct_finish_layout(TypeInfo* type) {
+    int current_offset = 0;
+    int max_alignment = 1;
+    int index = 0;
+    
+    Symbol* curr = type->struct_members;
+    while (curr) {
+        int sz = get_type_size(curr->type);
+        int al = get_type_alignment(curr->type);
+        
+        if (al > max_alignment) max_alignment = al;
+        
+        curr->index = index++;
+        if (type->base_type == TYPE_STRUCT) {
+            /* Align current offset */
+            current_offset = (current_offset + al - 1) & ~(al - 1);
+            curr->offset = current_offset;
+            current_offset += sz;
+        } else {
+            /* Union: all members at offset 0 */
+            curr->offset = 0;
+            if (sz > current_offset) current_offset = sz;
+        }
+        curr = curr->next;
+    }
+    
+    /* Final struct alignment */
+    type->alignment = max_alignment;
+    type->size = (current_offset + max_alignment - 1) & ~(max_alignment - 1);
+}
+
+Symbol* struct_lookup_member(TypeInfo* type, const char* name) {
+    if (!type || (type->base_type != TYPE_STRUCT && type->base_type != TYPE_UNION)) return NULL;
+    Symbol* m = type->struct_members;
+    while (m) {
+        if (strcmp(m->name, name) == 0) return m;
+        m = m->next;
+    }
+    return NULL;
+}
