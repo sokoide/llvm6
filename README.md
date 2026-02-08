@@ -64,14 +64,21 @@ make test
 
 ## Architecture
 
+### Project Structure
+
+-   **`srccpp/`**: Original C++ implementation of the Tiny-C compiler.
+-   **`src/`**: New Pure C port (C99) aimed at educational simplicity and self-hosting.
+-   **`testscpp/`**: Unit tests for the C++ version using Catch2.
+-   **`tests/`**: Shared fixtures and unit tests for the Pure C port.
+
 ### Core Components
 
 -   **Lexer** (`srccpp/lexer.l`) - Tokenizes C source code using Flex
 -   **Parser** (`srccpp/grammar.y`) - Builds AST from tokens using Bison
--   **AST System** (`srccpp/ast.h/cpp`) - 47 node types covering full C language
--   **Code Generator** (`srccpp/codegen.h/cpp`) - Traverses AST and emits LLVM IR
--   **Error Handling** (`srccpp/error_handling.h/cpp`) - Standardized error reporting
--   **Memory Management** (`srccpp/memory_management.h/cpp`) - Advanced memory tracking
+-   **AST System** (`srccpp/ast.h/cpp` & `src/ast.h/c`) - 47 node types covering full C language
+-   **Code Generator** (`srccpp/codegen.h/cpp` & `src/codegen.h/c`) - Traverses AST and emits LLVM IR
+-   **Error Handling** (`srccpp/error_handling.h/cpp` & `src/error.h/c`) - Standardized error reporting
+-   **Memory Management** (`srccpp/memory_management.h/cpp` & `src/memory.h/c`) - Advanced memory tracking (Arena in C version)
 
 ### Data Flow
 

@@ -1,502 +1,114 @@
-# C to LLVM IR Compiler Makefile
-TARGET = ./ccompiler
-CXX = g++
+# Tiny-C Compiler Makefile (Pure C Version)
+TARGET = ./ccompiler_c
 CC = gcc
-CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Isrccpp
-CFLAGS = -Wall -Wextra -O2
+CFLAGS = -Wall -Wextra -O2 -std=c99 -Isrc
 LIBS =
 
 # Directory structure
 BUILD_DIR = build
+SRC_DIR = src
+TEST_DIR = tests/unit
 TEST_FIXTURES = tests/fixtures
 TEST_OUTPUT = tests/output
-TEST_REPORTS = tests/reports
-UNIT_TEST_DIR = tests/unit
-UNIT_TEST_BUILD = $(BUILD_DIR)/unit_tests
 
 # Source files
-SOURCES = srccpp/main.cpp srccpp/ast.cpp srccpp/codegen.cpp srccpp/error_handling.cpp srccpp/memory_management.cpp $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/lex.yy.c
-OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o $(BUILD_DIR)/grammar.tab.o $(BUILD_DIR)/lex.yy.o
+C_SOURCES = src/main.c src/memory.c src/error.c src/ast.c src/symbols.c src/codegen.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c
+C_OBJECTS = $(BUILD_DIR)/c_main.o $(BUILD_DIR)/c_memory.o $(BUILD_DIR)/c_error.o $(BUILD_DIR)/c_ast.o $(BUILD_DIR)/c_symbols.o $(BUILD_DIR)/c_codegen.o $(BUILD_DIR)/c_grammar.o $(BUILD_DIR)/c_lex.o
 
-# Unit test files
-UNIT_TEST_SOURCES = $(UNIT_TEST_DIR)/test_main.cpp $(UNIT_TEST_DIR)/simple_test.cpp $(UNIT_TEST_DIR)/main_exports.cpp $(UNIT_TEST_DIR)/test_external_decl.cpp
-UNIT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/test_main.o $(UNIT_TEST_BUILD)/simple_test.o $(UNIT_TEST_BUILD)/main_exports.o $(UNIT_TEST_BUILD)/test_external_decl.o
-
-# Pointer/Struct test files
-POINTER_STRUCT_TEST_SOURCES = $(UNIT_TEST_DIR)/test_main.cpp $(UNIT_TEST_DIR)/test_pointers_simple.cpp $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp
-POINTER_STRUCT_TEST_OBJECTS = $(UNIT_TEST_BUILD)/test_main.o $(UNIT_TEST_BUILD)/test_pointers_simple.o $(UNIT_TEST_BUILD)/test_structs_simple_fixed.o
-
-# Library objects (without main.o for unit tests)
-LIB_OBJECTS = $(BUILD_DIR)/ast.o $(BUILD_DIR)/codegen.o $(BUILD_DIR)/error_handling.o $(BUILD_DIR)/memory_management.o
-
-# Generated files
-GENERATED = $(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.output
-
-# LLVM configuration
-LLVM_CONFIG = llvm-config
-LLVM_CXXFLAGS = $(shell $(LLVM_CONFIG) --cppflags 2>/dev/null || echo "")
-LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags 2>/dev/null || echo "")
-LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core 2>/dev/null || echo "")
-
-# Add LLVM flags if available
-ifneq ($(LLVM_CXXFLAGS),)
-	CXXFLAGS += $(LLVM_CXXFLAGS)
-	LDFLAGS += $(LLVM_LDFLAGS)
-	LIBS += $(LLVM_LIBS)
-endif
-
-# OS detection
-UNAME_S := $(shell uname -s)
-UNAME_M := $(shell uname -m)
-
-ifeq ($(UNAME_S),Darwin)
-	# macOS
-	PLATFORM = macos
-	ifeq ($(UNAME_M),x86_64)
-		LLC_TARGET = -mtriple=x86_64-apple-darwin
-		ARCH = x86_64
-	else ifeq ($(UNAME_M),arm64)
-		LLC_TARGET = -mtriple=arm64-apple-darwin
-		ARCH = arm64
-	else ifeq ($(UNAME_M),aarch64)
-		LLC_TARGET = -mtriple=aarch64-apple-darwin
-		ARCH = aarch64
-	else
-		LLC_TARGET = -mtriple=$(UNAME_M)-apple-darwin
-		ARCH = $(UNAME_M)
-	endif
-else
-	# Linux and others
-	PLATFORM = linux
-	ifeq ($(UNAME_M),x86_64)
-		LLC_TARGET =
-		ARCH = x86_64
-	else ifeq ($(UNAME_M),aarch64)
-		LLC_TARGET = -mtriple=aarch64-linux-gnu
-		ARCH = aarch64
-	else ifeq ($(UNAME_M),armv7l)
-		LLC_TARGET = -mtriple=arm-linux-gnueabihf
-		ARCH = arm
-	else
-		LLC_TARGET =
-		ARCH = $(UNAME_M)
-	endif
-endif
+# Unit tests
+C_TEST_BINARIES = $(BUILD_DIR)/test_memory_c $(BUILD_DIR)/test_error_c $(BUILD_DIR)/test_ast_c
 
 # Default target
 all: $(TARGET)
 
 # Build the compiler
-$(TARGET): $(OBJECTS)
+$(TARGET): $(BUILD_DIR) $(C_OBJECTS)
 	@echo "Linking $(TARGET)..."
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(C_OBJECTS) $(LIBS)
 
-# Create build directories
+# Create build directory
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
-
-$(BUILD_DIR)/generated:
-	mkdir -p $(BUILD_DIR)/generated
-
-$(UNIT_TEST_BUILD):
-	mkdir -p $(UNIT_TEST_BUILD)
 
 $(TEST_OUTPUT):
 	mkdir -p $(TEST_OUTPUT)
 
-$(TEST_REPORTS):
-	mkdir -p $(TEST_REPORTS)
-
 # Object file dependencies
-$(BUILD_DIR)/main.o: srccpp/main.cpp srccpp/ast.h srccpp/codegen.h $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c srccpp/main.cpp -o $@
+$(BUILD_DIR)/c_main.o: src/main.c src/common.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/ast.o: srccpp/ast.cpp srccpp/ast.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c srccpp/ast.cpp -o $@
+$(BUILD_DIR)/c_memory.o: src/memory.c src/memory.h src/common.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/codegen.o: srccpp/codegen.cpp srccpp/codegen.h srccpp/ast.h srccpp/constants.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c srccpp/codegen.cpp -o $@
+$(BUILD_DIR)/c_error.o: src/error.c src/error.h src/common.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/error_handling.o: srccpp/error_handling.cpp srccpp/error_handling.h srccpp/constants.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c srccpp/error_handling.cpp -o $@
+$(BUILD_DIR)/c_ast.o: src/ast.c src/ast.h src/common.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/memory_management.o: srccpp/memory_management.cpp srccpp/memory_management.h srccpp/constants.h srccpp/error_handling.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c srccpp/memory_management.cpp -o $@
+$(BUILD_DIR)/c_symbols.o: src/symbols.c src/symbols.h src/ast.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/grammar.tab.o: $(BUILD_DIR)/generated/grammar.tab.cpp srccpp/ast.h srccpp/codegen.h | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+$(BUILD_DIR)/c_codegen.o: src/codegen.c src/codegen.h src/ast.h src/symbols.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/lex.yy.o: $(BUILD_DIR)/generated/lex.yy.c $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-sign-compare -I$(BUILD_DIR)/generated -c $< -o $@
+$(BUILD_DIR)/c_grammar.o: $(BUILD_DIR)/grammar_c.tab.c src/ast.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -c $< -o $@
+
+$(BUILD_DIR)/c_lex.o: $(BUILD_DIR)/lex_c.yy.c $(BUILD_DIR)/grammar_c.tab.h src/ast.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -c $< -o $@
 
 # Generate parser from grammar
-$(BUILD_DIR)/generated/grammar.tab.cpp $(BUILD_DIR)/generated/grammar.tab.hpp: srccpp/grammar.y | $(BUILD_DIR)/generated
-	@echo "Generating parser..."
-	bison -d -v -t -o $(BUILD_DIR)/generated/grammar.tab.cpp srccpp/grammar.y
+$(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/grammar_c.tab.h: src/grammar.y | $(BUILD_DIR)
+	@echo "Generating C port parser..."
+	bison -d -o $(BUILD_DIR)/grammar_c.tab.c src/grammar.y
 
 # Generate lexer from specification
-$(BUILD_DIR)/generated/lex.yy.c: srccpp/lexer.l $(BUILD_DIR)/generated/grammar.tab.hpp | $(BUILD_DIR)/generated
-	@echo "Generating lexer..."
-	flex -o $@ srccpp/lexer.l
+$(BUILD_DIR)/lex_c.yy.c: src/lexer.l $(BUILD_DIR)/grammar_c.tab.h | $(BUILD_DIR)
+	@echo "Generating C port lexer..."
+	flex -o $@ src/lexer.l
 
-# Unit test object files
-$(UNIT_TEST_BUILD)/test_main.o: $(UNIT_TEST_DIR)/test_main.cpp | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+# Test targets
+test: test-unit test-integration
 
-$(UNIT_TEST_BUILD)/simple_test.o: $(UNIT_TEST_DIR)/simple_test.cpp srccpp/ast.h srccpp/error_handling.h srccpp/memory_management.h srccpp/codegen.h srccpp/constants.h | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
+test-unit: $(BUILD_DIR) $(C_TEST_BINARIES)
+	@echo "Running C Port unit tests..."
+	@for test in $(C_TEST_BINARIES); do \
+		echo "Running $$test..."; \
+		$$test; \
+	done
 
-$(UNIT_TEST_BUILD)/main_exports.o: $(UNIT_TEST_DIR)/main_exports.cpp srccpp/main.cpp | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
-
-$(UNIT_TEST_BUILD)/test_external_decl.o: $(UNIT_TEST_DIR)/test_external_decl.cpp srccpp/ast.h srccpp/codegen.h | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
-
-# Pointer/Struct test object files
-$(UNIT_TEST_BUILD)/test_pointers_simple.o: $(UNIT_TEST_DIR)/test_pointers_simple.cpp srccpp/ast.h srccpp/codegen.h srccpp/memory_management.h srccpp/constants.h | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
-
-$(UNIT_TEST_BUILD)/test_structs_simple_fixed.o: $(UNIT_TEST_DIR)/test_structs_simple_fixed.cpp srccpp/ast.h srccpp/codegen.h srccpp/memory_management.h srccpp/constants.h | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -I$(BUILD_DIR)/generated -c $< -o $@
-
-$(UNIT_TEST_BUILD)/test_pointer_struct_runner.o: $(UNIT_TEST_DIR)/test_pointer_struct_runner.cpp | $(UNIT_TEST_BUILD)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-
-
-
-# Clean generated and object files
-clean: clean-unit-tests
-	@echo "Cleaning generated files..."
-	rm -f $(TARGET)
-	rm -rf $(BUILD_DIR)
-
-# Clean everything including backup files and coverage data
-distclean: clean clean-coverage clean-unit-tests
-	rm -f *~ *.bak core
-	rm -rf $(TEST_OUTPUT)/* $(TEST_REPORTS)/*
-
-# Clean unit test files
-clean-unit-tests:
-	@echo "Cleaning unit test files..."
-	rm -rf $(UNIT_TEST_BUILD)
-	rm -f ./unit_tests ./pointer_struct_tests
-
-# Compile C to LLVM IR
-ir: $(TARGET)
-	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make ir INPUT=file.c [OUTPUT=file.ll]"; \
-		exit 1; \
-	fi
-	@if [ -n "$(OUTPUT)" ]; then \
-		$(TARGET) $(INPUT) -o $(OUTPUT); \
-	else \
-		$(TARGET) $(INPUT) -o $(INPUT:.c=.ll); \
-	fi
-
-# Build Binary from LLVM IR
-bin:
-	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make bin INPUT=file.ll"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(INPUT)" ]; then \
-		echo "Error: File $(INPUT) not found"; \
-		exit 1; \
-	fi
-	@echo "Platform: $(PLATFORM)"
-	@echo "Compiling LLVM IR to object file..."
-	llc -filetype=obj $(LLC_TARGET) $(INPUT) -o $(INPUT:.ll=.o)
-	@echo "Linking..."
-	$(CC) $(INPUT:.ll=.o) -o $(INPUT:.ll=)
-
-# Build and run C source (C -> IR -> Bin -> Run)
-run: $(TARGET)
-	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make run INPUT=file.c"; \
-		echo "Error: INPUT file not specified"; \
-		exit 1; \
-	fi
-	@echo "--- [1/3] Generating LLVM IR ---"
-	@$(MAKE) ir INPUT=$(INPUT) --no-print-directory
-	@echo "--- [2/3] Building Binary ---"
-	@$(MAKE) bin INPUT=$(INPUT:.c=.ll) --no-print-directory
-	@echo "--- [3/3] Executing ---"
-	@./$(INPUT:.c=); \
-	status=$$?; \
-	echo "Return code: $$status"
-
-# Build and run from LLVM IR
-run-ir:
-	@if [ -z "$(INPUT)" ]; then \
-		echo "Usage: make run-ir INPUT=file.ll"; \
-		exit 1; \
-	fi
-	@$(MAKE) bin INPUT=$(INPUT) --no-print-directory
-	@echo "--- Running $(INPUT:.ll=) ---"
-	@./$(INPUT:.ll=); \
-	status=$$?; \
-	echo "Return code: $$status"
-
-# Debug build with symbols and debug info
-debug: CXXFLAGS += -g -DDEBUG -O0
-debug: CFLAGS += -g -DDEBUG -O0
-debug: $(TARGET)
-
-# Integration test suite
 test-integration: $(TARGET) | $(TEST_OUTPUT)
-	@echo "Running comprehensive compiler test suite..."
+	@echo "Running C port integration tests..."
 	@echo "====================================================="
 	@failed=0; total=0; \
 	for test_file in $(TEST_FIXTURES)/*.c; do \
 		if [ -f "$$test_file" ]; then \
 			total=$$((total + 1)); \
 			test_name=$$(basename "$$test_file" .c); \
-			echo "Testing $$test_name..."; \
-			if $(TARGET) "$$test_file" -o "$(TEST_OUTPUT)/$$test_name.ll" 2>/dev/null; then \
-				echo "  ✓ $$test_name: PASSED"; \
+			printf "Testing $$test_name... "; \
+			if $(TARGET) "$$test_file" > /dev/null 2>&1; then \
+				echo "PASSED"; \
 			else \
-				echo "  ✗ $$test_name: FAILED"; \
+				echo "FAILED"; \
 				failed=$$((failed + 1)); \
 			fi; \
 		fi; \
 	done; \
 	echo "====================================================="; \
-	echo "Test Results: $$((total - failed))/$$total passed"; \
-	if [ $$failed -gt 0 ]; then \
-		echo "⚠️  $$failed test(s) failed"; \
-		exit 1; \
-	else \
-		echo "🎉 All tests passed!"; \
-	fi
+	echo "C Port Integration Results: $$((total - failed))/$$total passed"; \
+	[ $$failed -eq 0 ]
 
-# Detailed test with verbose output
-test-verbose: $(TARGET) | $(TEST_OUTPUT)
-	@echo "Running tests with verbose output..."
-	@for test_file in $(TEST_FIXTURES)/*.c; do \
-		if [ -f "$$test_file" ]; then \
-			test_name=$$(basename "$$test_file" .c); \
-			echo "=== Testing $$test_name ==="; \
-			echo "Source:"; \
-			head -5 "$$test_file"; \
-			echo "Output:"; \
-			$(TARGET) "$$test_file" -o "$(TEST_OUTPUT)/$$test_name.ll" -v || true; \
-			echo ""; \
-		fi; \
-	done
+$(BUILD_DIR)/test_memory_c: tests/unit/test_memory.c src/memory.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -o $@ $^
 
-# Quick test of basic functionality
-test-quick: $(TARGET) | $(TEST_OUTPUT)
-	@echo "Running quick functionality tests..."
-	@$(TARGET) $(TEST_FIXTURES)/simple.c -o $(TEST_OUTPUT)/simple.ll >/dev/null 2>&1 && echo "✓ Basic compilation works" || echo "✗ Basic compilation failed"
-	@$(TARGET) $(TEST_FIXTURES)/variables.c >/dev/null 2>&1 && echo "✓ Variable handling works" || echo "✗ Variable handling failed"
-	@$(TARGET) $(TEST_FIXTURES)/functions.c >/dev/null 2>&1 && echo "✓ Function parsing works" || echo "✗ Function parsing failed"
+$(BUILD_DIR)/test_error_c: tests/unit/test_error.c src/error.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -o $@ $^
 
-# Validate generated LLVM IR
-validate: test-integration
-	@echo "Validating LLVM IR..."
-	@for file in $(TEST_OUTPUT)/*.ll; do \
-		if [ -f "$$file" ]; then \
-			echo "Validating $$file..."; \
-			llvm-as "$$file" -o /dev/null 2>/dev/null && echo "✓ $$file is valid" || echo "✗ $$file has errors"; \
-		fi; \
-	done
+$(BUILD_DIR)/test_ast_c: tests/unit/test_ast_c.c src/ast.c src/memory.c src/error.c $(BUILD_DIR)/grammar_c.tab.c $(BUILD_DIR)/lex_c.yy.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc -I$(BUILD_DIR) -o $@ $^
 
-# Unit tests
-unit-tests: $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS)
-	@echo "Building unit tests..."
-	$(CXX) $(CXXFLAGS) -o ./unit_tests $(UNIT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS) --coverage
+clean:
+	rm -rf $(BUILD_DIR) $(TARGET)
 
-# Pointer/Struct tests
-pointer-struct-tests: $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS)
-	@echo "Building pointer and struct tests..."
-	$(CXX) $(CXXFLAGS) -o ./pointer_struct_tests $(POINTER_STRUCT_TEST_OBJECTS) $(LIB_OBJECTS) $(LDFLAGS) $(LIBS) --coverage
-
-# Run unit tests (includes pointer/struct tests)
-test-unit: unit-tests pointer-struct-tests
-	@echo "Running comprehensive unit tests..."
-	@echo "=== Standard Unit Tests ==="
-	./unit_tests
-	@echo ""
-	@echo "=== Pointer/Struct Unit Tests ==="
-	@./pointer_struct_tests || (echo "Note: Some pointer/struct tests failed due to incomplete implementation" && true)
-
-# Run pointer/struct tests
-test-pointer-struct: pointer-struct-tests
-	@echo "Running pointer and struct tests..."
-	./pointer_struct_tests
-
-# Comprehensive test suite (integration + unit tests)
-test: test-integration test-unit
-	@echo ""
-	@echo "🎉 Comprehensive testing complete!"
-	@echo "   ✓ Integration tests: 34 tests"
-	@echo "   ✓ Unit tests: 43 tests (38 standard + 5 pointer/struct)"
-	@echo "   ✓ Total: 77 tests executed"
-
-# Run unit tests with coverage
-test-unit-coverage: clean
-	@echo "Building unit tests with coverage instrumentation..."
-	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         LDFLAGS="$(LDFLAGS) --coverage" \
-	         unit-tests
-	@echo "Running unit tests for coverage analysis..."
-	@./unit_tests
-	@echo "Generating unit test coverage report..."
-	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) srccpp/*.cpp 2>/dev/null || echo "gcov not available for some files"
-	@gcov -o $(UNIT_TEST_BUILD) tests/unit/*.cpp 2>/dev/null || echo "gcov not available for test files"
-	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
-	@echo "Unit test coverage files generated in $(TEST_REPORTS)/"
-
-# Combined coverage (integration + unit tests)
-test-coverage-combined: clean
-	@echo "Building with coverage instrumentation..."
-	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         LDFLAGS="$(LDFLAGS) --coverage" \
-	         $(TARGET) unit-tests pointer-struct-tests
-	@echo "Running integration tests..."
-	@$(MAKE) test-quick 2>/dev/null || true
-	@echo "Running unit tests..."
-	@./unit_tests
-	@echo "Running pointer/struct tests..."
-	@./pointer_struct_tests || echo "Pointer/struct tests failed as expected"
-	@echo "Generating combined coverage report..."
-	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) srccpp/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available for some files"
-	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
-	@echo "Combined coverage analysis complete."
-	@if command -v lcov >/dev/null 2>&1; then \
-		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info --ignore-errors mismatch 2>/dev/null && \
-		lcov --summary $(TEST_REPORTS)/coverage.info 2>/dev/null; \
-	else \
-		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
-	fi
-
-# Code coverage analysis
-test-coverage: clean
-	@echo "Building with coverage instrumentation..."
-	@$(MAKE) CXXFLAGS="$(CXXFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         CFLAGS="$(CFLAGS) --coverage -fprofile-arcs -ftest-coverage" \
-	         LDFLAGS="$(LDFLAGS) --coverage" \
-	         $(TARGET)
-	@echo "Running tests for coverage analysis..."
-	@$(MAKE) test-quick 2>/dev/null || true
-	@echo "Generating coverage report..."
-	@mkdir -p $(TEST_REPORTS)
-	@gcov -o $(BUILD_DIR) srccpp/*.cpp $(BUILD_DIR)/generated/*.c 2>/dev/null || echo "gcov not available, skipping detailed coverage"
-	@mv *.gcov $(TEST_REPORTS)/ 2>/dev/null || true
-	@echo "Coverage files generated:"
-	@ls -la $(TEST_REPORTS)/*.gcov 2>/dev/null || echo "No .gcov files found"
-	@echo "Coverage summary:"
-	@if command -v lcov >/dev/null 2>&1; then \
-		lcov --capture --directory $(BUILD_DIR) --output-file $(TEST_REPORTS)/coverage.info 2>/dev/null && \
-		lcov --summary $(TEST_REPORTS)/coverage.info 2>/dev/null; \
-	else \
-		echo "lcov not available, install with: brew install lcov (macOS) or apt-get install lcov (Linux)"; \
-	fi
-	@echo "Coverage analysis complete. Check .gcov files for line-by-line coverage."
-
-# Clean coverage files
-clean-coverage:
-	@echo "Cleaning coverage files..."
-	@rm -f $(BUILD_DIR)/*.gcda $(BUILD_DIR)/*.gcno
-	@rm -rf $(TEST_REPORTS)/*.gcov $(TEST_REPORTS)/coverage.info
-
-# Install the compiler (requires sudo)
-install: $(TARGET)
-	@echo "Installing $(TARGET) to /usr/local/bin..."
-	sudo cp $(TARGET) /usr/local/bin/
-	@echo "Installation complete"
-
-# Uninstall the compiler
-uninstall:
-	@echo "Removing $(TARGET) from /usr/local/bin..."
-	sudo rm -f /usr/local/bin/ccompiler
-	@echo "Uninstallation complete"
-
-# Format
-format:
-	@echo "Formatting all .cpp/.c/.h files..."
-	@find . -name "*.cpp" -o -name "*.c" -o -name "*.h" | xargs clang-format -i
-	@echo "Formatting complete."
-# Show help
-help:
-	@echo "Available targets:"
-	@echo "  all            - Build the compiler (default)"
-	@echo "  clean          - Remove generated and object files"
-	@echo "  distclean      - Remove all generated files including backups and coverage"
-	@echo "  run            - Build and run C source (C -> IR -> Bin -> Run)"
-	@echo "  ir             - Generate LLVM IR from C source"
-	@echo "  bin            - Build Binary from LLVM IR"
-	@echo "  run-ir         - Build and run from LLVM IR"
-	@echo "  debug          - Build with debug symbols"
-	@echo ""
-	@echo "Testing targets:"
-	@echo "  test             - Run comprehensive test suite (integration + unit tests)"
-	@echo "  test-integration - Run integration tests on all test files"
-	@echo "  test-unit        - Run unit tests (includes pointer/struct tests)"
-	@echo "  test-verbose     - Run integration tests with detailed output"
-	@echo "  test-quick       - Run basic functionality tests"
-	@echo "  test-coverage    - Run tests with code coverage analysis"
-	@echo "  validate         - Validate generated LLVM IR syntax"
-	@echo "  clean-coverage   - Remove coverage analysis files"
-	@echo ""
-	@echo "Unit testing targets:"
-	@echo "  unit-tests           - Build unit tests"
-	@echo "  pointer-struct-tests - Build pointer/struct tests"
-	@echo "  test-pointer-struct  - Run pointer/struct tests only"
-	@echo "  test-unit-coverage   - Run unit tests with coverage"
-	@echo "  test-coverage-combined - Run both integration and unit tests with coverage"
-	@echo "  clean-unit-tests     - Remove unit test build files"
-	@echo ""
-	@echo "Installation:"
-	@echo "  install        - Install compiler system-wide"
-	@echo "  uninstall      - Remove system-wide installation"
-	@echo "  check-deps     - Check for required dependencies"
-	@echo "  help           - Show this help"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make run INPUT=program.c"
-	@echo "  make ir INPUT=program.c OUTPUT=program.ll"
-	@echo "  make bin INPUT=program.ll"
-	@echo "  make run-ir INPUT=program.ll"
-	@echo "  make debug && ./ccompiler -v -a program.c"
-
-# Check dependencies
-check-deps:
-	@echo "Checking dependencies..."
-	@which bison >/dev/null || (echo "✗ bison not found" && exit 1)
-	@which flex >/dev/null || (echo "✗ flex not found" && exit 1)
-	@which $(CXX) >/dev/null || (echo "✗ $(CXX) not found" && exit 1)
-	@echo "✓ All dependencies found"
-	@if which $(LLVM_CONFIG) >/dev/null 2>&1; then \
-		echo "✓ LLVM found: $$($(LLVM_CONFIG) --version)"; \
-	else \
-		echo "⚠ LLVM not found - some features may be limited"; \
-	fi
-
-# Benchmarking targets
-benchmark: $(TARGET)
-	@echo \"Running performance benchmarks...\"
-	@scripts/benchmark.sh
-
-benchmark-stress: $(TARGET)
-	@echo \"Running stress tests...\"
-	@scripts/benchmark.sh --stress
-
-# Static analysis targets
-static-analysis: cppcheck
-	@echo "Static analysis complete"
-
-cppcheck:
-	@echo "Running cppcheck..."
-	@if which cppcheck >/dev/null 2>&1; then \
-		cppcheck --enable=all --inconclusive --std=c++17 -I srccpp --suppress=missingIncludeSystem --error-exitcode=0 srccpp/*.cpp 2>&1 | tee build/cppcheck.log; \
-	else \
-		echo "WARNING: cppcheck not found. Install with: brew install cppcheck (macOS) or apt-get install cppcheck (Linux)"; \
-	fi
-
-.PHONY: all clean distclean run run-ir ir bin debug test test-integration test-verbose test-quick test-coverage validate install uninstall help check-deps clean-coverage unit-tests test-unit test-unit-coverage test-coverage-combined clean-unit-tests pointer-struct-tests test-pointer-struct benchmark benchmark-stress static-analysis cppcheck
+.PHONY: all clean test test-unit test-integration
