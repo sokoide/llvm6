@@ -1,13 +1,13 @@
 # Implementation Plan: Self-hosting Tiny-C Compiler
 
-## Phase 1: Diagnostic and Basic Expression Support
+## Phase 1: Diagnostic and Basic Expression Support [checkpoint: f94307d]
 コンパイラ自身のソースコードをパースし、最初のエラーを特定・解決する。また、基本的なビット演算子などを実装する。
 
 - [x] Task: Attempt to self-compile and list prioritized missing features/errors
-- [~] Task: Implement bitwise operators (`&`, `|`, `^`, `~`, `<<`, `>>`)
-- [ ] Task: Implement compound assignment operators (`+=`, `&=`, etc.)
-- [ ] Task: Verify expression support with existing `examples/` and new test fixtures
-- [ ] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
+- [x] Task: Implement bitwise operators (`&`, `|`, `^`, `~`, `<<`, `>>`)
+- [x] Task: Implement compound assignment operators (`+=`, `&=`, etc.)
+- [x] Task: Verify expression support with existing `examples/` and new test fixtures
+- [x] Task: Conductor - User Manual Verification 'Phase 1' (Protocol in workflow.md)
 
 ## Phase 2: Type System Enhancements (Typedef and Enum)
 データ構造の定義に不可欠な `typedef` と `enum` を実装する。
