@@ -1,0 +1,8 @@
+{
+  "track_id": "self_host_20260208",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-02-08T12:00:00Z",
+  "updated_at": "2026-02-08T12:00:00Z",
+  "description": "Tiny-Cコンパイラ(src, C version)をセルフホスト（自分自身をコンパイル）するのに足りない機能を分析・実装して"
+}

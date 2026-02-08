@@ -32,6 +32,7 @@ IS			(u|U|l|L)*
 %%
 "/*"			{ comment(); }
 "//".*			{ count(); }
+^#.*			{ count(); /* Skip preprocessor directives */ }
 
 "auto"			{ count(); return(AUTO); }
 "_Bool"			{ count(); return(BOOL); }

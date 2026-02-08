@@ -886,11 +886,18 @@ translation_unit
 		}
 	| translation_unit external_declaration
 		{
-			$$ = $1;
-			ASTNode* current = $1;
-			while (current->next) current = current->next;
-			current->next = $2;
-			program_ast = $$;
+			if ($1 == NULL) {
+				program_ast = $2;
+				$$ = $2;
+			} else {
+				if ($2 != NULL) {
+					ASTNode* current = $1;
+					while (current->next) current = current->next;
+					current->next = $2;
+				}
+				$$ = $1;
+				program_ast = $$;
+			}
 		}
 	;
 
@@ -922,10 +929,12 @@ int yyerror(const char* s) {
 
 	fflush(stdout);
 
-	printf("\n%*s\n%*s\n", column, "^", column, s);
+	printf("\nError near '%s' at column %d: %s\n", yytext, column, s);
 
 	return 0;
 
 }
+
+
 
 

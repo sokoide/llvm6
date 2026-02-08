@@ -4,5 +4,7 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Enhanced C Features Support (Logic, Structs, Arrays)**
-  *Link: [./tracks/feature_enhanced_c_20260207/](./tracks/feature_enhanced_c_20260207/)*
+---
+
+- [~] **Track: Tiny-Cコンパイラ(src, C version)をセルフホスト可能にするための拡張**
+*Link: [./tracks/self_host_20260208/](./tracks/self_host_20260208/)*
