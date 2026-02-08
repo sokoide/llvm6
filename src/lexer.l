@@ -32,6 +32,25 @@ IS			(u|U|l|L)*
 %option noyywrap
 
 %%
+"_Nullable"		{ count(); }
+"_Nonnull"		{ count(); }
+"__unused"		{ count(); }
+"__deprecated"		{ count(); }
+"__dead2"		{ count(); }
+"__pure2"		{ count(); }
+"__block"		{ count(); }
+"__weak"		{ count(); }
+"__strong"		{ count(); }
+"__unsafe_unretained"	{ count(); }
+"__restrict"		{ count(); return(CONST); }
+"restrict"		{ count(); return(CONST); }
+"__inline"		{ count(); }
+"inline"		{ count(); }
+"__attribute__"		{ count(); skip_attribute(); }
+"__asm"			{ count(); skip_attribute(); }
+"__asm__"		{ count(); skip_attribute(); }
+"__extension__"		{ count(); }
+
 "/*"			{ comment(); }
 "//".*			{ count(); }
 ^#.*			{ count(); /* Skip preprocessor directives */ }
@@ -70,20 +89,11 @@ IS			(u|U|l|L)*
 "volatile"		{ count(); return(VOLATILE); }
 "while"			{ count(); return(WHILE); }
 
-"__attribute__"		{ count(); skip_attribute(); }
-"__extension__"		{ count(); }
-"__restrict"		{ count(); return(CONST); /* Hack: treat as const */ }
-"restrict"		{ count(); return(CONST); }
-"__inline"		{ count(); }
-"inline"		{ count(); }
-"_Nullable"		{ count(); }
-"_Nonnull"		{ count(); }
-"__unused"		{ count(); }
-"__deprecated"		{ count(); }
-"__dead2"		{ count(); }
-"__pure2"		{ count(); }
-"__asm"			{ count(); skip_attribute(); }
-"__asm__"		{ count(); skip_attribute(); }
+"__builtin_va_arg"	{ count(); return(SIZEOF); }
+"__builtin_va_start"	{ count(); return(SIZEOF); }
+"__builtin_va_end"	{ count(); return(SIZEOF); }
+"__builtin_va_copy"	{ count(); return(SIZEOF); }
+"__builtin_expect"	{ count(); return(SIZEOF); }
 
 {L}({L}|{D})*		{ count(); safe_strdup_to_yylval(yytext); return(check_type()); }
 

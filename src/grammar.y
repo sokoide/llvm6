@@ -48,6 +48,7 @@ int yyerror(const char* s);
 %token TYPEDEF EXTERN STATIC AUTO REGISTER
 %token CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
 %token STRUCT UNION ENUM ELLIPSIS BOOL
+%token NONNULL NULLABLE UNUSED DEPRECATED
 
 %token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
 
@@ -337,6 +338,10 @@ declaration
 				int p_level = 0;
 				if (curr->type == AST_VARIABLE_DECL) {
 					p_level = curr->data.variable_decl.pointer_level;
+					if (curr->data.variable_decl.parameters) {
+						TypeInfo* func_type = create_function_type(full_type, curr->data.variable_decl.parameters);
+						full_type = func_type;
+					}
 					for (int i = 0; i < p_level; i++) {
 						full_type = create_pointer_type(full_type);
 					}
@@ -371,7 +376,6 @@ declaration_specifiers
 			} else {
 				$$ = $2;
 				$$->storage_class = $1->storage_class;
-				free_type_info($1);
 			}
 		}
 	| type_specifier
@@ -384,7 +388,6 @@ declaration_specifiers
 				$$ = $2;
 				if ($1) {
 					$$->base_type = $1->base_type;
-					free_type_info($1);
 				}
 			}
 		}
@@ -398,7 +401,6 @@ declaration_specifiers
 				$$ = $2;
 				if ($1) {
 					$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
-					free_type_info($1);
 				}
 			}
 		}
@@ -420,8 +422,14 @@ init_declarator
 	: declarator
 		{
 			if ($1->data.identifier.parameters) {
-				$$ = create_function_decl_node(NULL, $1->data.identifier.name, $1->data.identifier.parameters, $1->data.identifier.is_variadic);
-				$$->data.function_def.pointer_level = $1->data.identifier.pointer_level;
+				if ($1->data.identifier.is_function_pointer) {
+					$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
+					$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+					$$->data.variable_decl.parameters = $1->data.identifier.parameters;
+				} else {
+					$$ = create_function_decl_node(NULL, $1->data.identifier.name, $1->data.identifier.parameters, $1->data.identifier.is_variadic);
+					$$->data.function_def.pointer_level = $1->data.identifier.pointer_level;
+				}
 			} else {
 				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, NULL);
 				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
@@ -430,9 +438,15 @@ init_declarator
 		}
 	| declarator '=' initializer
 		{
-			$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
-			$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
-			$$->data.variable_decl.array_dimensions = $1->data.identifier.array_dimensions;
+			if ($1->data.identifier.is_function_pointer) {
+				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
+				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+				$$->data.variable_decl.parameters = $1->data.identifier.parameters;
+			} else {
+				$$ = create_variable_decl_node(NULL, $1->data.identifier.name, $3);
+				$$->data.variable_decl.pointer_level = $1->data.identifier.pointer_level;
+				$$->data.variable_decl.array_dimensions = $1->data.identifier.array_dimensions;
+			}
 		}
 	;
 
@@ -655,18 +669,21 @@ enumerator
 type_qualifier
 	: CONST     { $$ = create_type_info(TYPE_VOID); $$->qualifiers = QUAL_CONST; }
 	| VOLATILE  { $$ = create_type_info(TYPE_VOID); $$->qualifiers = QUAL_VOLATILE; }
+	| NONNULL   { $$ = create_type_info(TYPE_VOID); }
+	| NULLABLE  { $$ = create_type_info(TYPE_VOID); }
+	| UNUSED    { $$ = create_type_info(TYPE_VOID); }
+	| DEPRECATED { $$ = create_type_info(TYPE_VOID); }
 	;
 
 declarator
 	: pointer direct_declarator
 		{
 			$$ = $2;
-			$$->data.identifier.pointer_level = $1;
+			$$->data.identifier.pointer_level += $1;
 		}
 	| direct_declarator
 		{
 			$$ = $1;
-			$$->data.identifier.pointer_level = 0;
 		}
 	;
 
@@ -679,6 +696,10 @@ direct_declarator
 		}
 	| '(' declarator ')'
 		{ $$ = $2; }
+	| '(' '^' declarator ')'
+		{ $$ = $3; }
+	| '(' '^' ')'
+		{ $$ = create_identifier_node("block_stub"); }
 	| direct_declarator '[' constant_expression ']'
 		{
 			$$ = $1;
@@ -702,6 +723,9 @@ direct_declarator
 	| direct_declarator '(' parameter_type_list ')'
 		{
 			$$ = $1;
+			if ($$->data.identifier.pointer_level > 0) {
+				$$->data.identifier.is_function_pointer = 1;
+			}
 			$$->data.identifier.parameters = $3.head;
 			$$->data.identifier.is_variadic = $3.is_variadic;
 		}
@@ -763,8 +787,13 @@ parameter_list
 parameter_declaration
 	: declaration_specifiers declarator
 		{
-			TypeInfo* full_type = $1;
-			for (int i = 0; i < $2->data.identifier.pointer_level; i++) {
+			TypeInfo* full_type = duplicate_type_info($1);
+			int p_level = $2->data.identifier.pointer_level;
+			if ($2->data.identifier.parameters) {
+				TypeInfo* func_type = create_function_type(full_type, $2->data.identifier.parameters);
+				full_type = func_type;
+			}
+			for (int i = 0; i < p_level; i++) {
 				full_type = create_pointer_type(full_type);
 			}
 			$$ = create_variable_decl_node(full_type, $2->data.identifier.name, NULL);

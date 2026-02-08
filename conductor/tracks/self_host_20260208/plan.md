@@ -18,7 +18,7 @@
 - [x] Task: Verify type aliasing logic with complex declaration tests
 - [x] Task: Conductor - User Manual Verification 'Phase 2' (Protocol in workflow.md)
 
-## Phase 3: Structural Support (Struct and Union) [checkpoint: 0b05059]
+## Phase 3: Structural Support (Struct and Union) [checkpoint: c1ae203]
 ASTやシンボルテーブルの内部構造を扱えるよう、構造体と共用体を完全にサポートする。
 
 - [x] Task: Implement full struct/union member layout and alignment logic
@@ -27,14 +27,14 @@ ASTやシンボルテーブルの内部構造を扱えるよう、構造体と�
 - [x] Task: Verify structural access with unit tests and complex fixtures
 - [x] Task: Conductor - User Manual Verification 'Phase 3' (Protocol in workflow.md)
 
-## Phase 4: Advanced Logic and Function Pointers
+## Phase 4: Advanced Logic and Function Pointers [checkpoint: c1ae203]
 セルフホストに必要な残りの論理機能と関数ポインタを実装する。
 
-- [ ] Task: Implement conditional operator (`? :`)
-- [ ] Task: Implement function pointer declarations and calls
-- [ ] Task: Enhance system header compatibility (ignoring/processing specific attributes)
-- [ ] Task: Verify full parser compatibility with a preprocessed `src/main.c`
-- [ ] Task: Conductor - User Manual Verification 'Phase 4' (Protocol in workflow.md)
+- [x] Task: Implement conditional operator (`? :`)
+- [x] Task: Implement function pointer declarations and calls
+- [x] Task: Enhance system header compatibility (ignoring/processing specific attributes)
+- [x] Task: Verify full parser compatibility with a preprocessed `src/main.c`
+- [x] Task: Conductor - User Manual Verification 'Phase 4' (Protocol in workflow.md)
 
 ## Phase 5: Bootstrapping and Parity Validation
 2段階ビルドを実行し、出力の整合性を検証する。

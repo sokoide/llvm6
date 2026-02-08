@@ -79,31 +79,8 @@ void symbol_clear_all(void) {
 void symbol_init_builtins(void) {
     Symbol* s;
     
-    /* __builtin_va_list */
+    /* __builtin_va_list (still needed as a base for va_list) */
     s = create_symbol("__builtin_va_list", create_pointer_type(create_type_info(TYPE_VOID)));
-    s->type->storage_class = STORAGE_TYPEDEF;
-    s->is_global = 1;
-    symbol_add_global(s);
-
-    /* size_t */
-    s = create_symbol("size_t", create_type_info(TYPE_LONG));
-    s->type->storage_class = STORAGE_TYPEDEF;
-    s->is_global = 1;
-    symbol_add_global(s);
-
-    /* FILE (stub as void for now) */
-    s = create_symbol("FILE", create_type_info(TYPE_VOID));
-    s->type->storage_class = STORAGE_TYPEDEF;
-    s->is_global = 1;
-    symbol_add_global(s);
-
-    /* __int128 stubs */
-    s = create_symbol("__int128_t", create_type_info(TYPE_LONG));
-    s->type->storage_class = STORAGE_TYPEDEF;
-    s->is_global = 1;
-    symbol_add_global(s);
-
-    s = create_symbol("__uint128_t", create_type_info(TYPE_LONG));
     s->type->storage_class = STORAGE_TYPEDEF;
     s->is_global = 1;
     symbol_add_global(s);
