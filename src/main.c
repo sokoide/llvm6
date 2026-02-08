@@ -9,40 +9,29 @@ extern FILE* yyin;
 extern ASTNode* program_ast;
 
 int main(int argc, char* argv[]) {
-#ifndef TC1
-    // Dump code caused infinite loop
-    /*
-    if (argc > 1) {
-        char* p = argv[1];
-        int count = 0;
-        while (*p && count < 100) {
-            fputc(*p, stderr);
-            p++;
-            count++;
-        }
-        fputc('\n', stderr);
-    }
-    */
-    // The original `else` block for `argc > 1` was `fputc('E', stderr); ...`.
-    // This block is implicitly removed by the instruction "remove loop dump"
-    // and not being part of the new code snippet.
-#endif
-
+    fprintf(stderr, "DEBUG: main started, argc=%d\n", argc);
     mem_init();
+    fprintf(stderr, "DEBUG: mem_init done\n");
     symbol_init_builtins();
+    fprintf(stderr, "DEBUG: symbol_init_builtins done\n");
     codegen_init(stdout);
 
     if (argc > 1) {
+        fprintf(stderr, "DEBUG: opening file %s\n", argv[1]);
         yyin = fopen(argv[1], "r");
         if (!yyin) {
             fatal_error("Cannot open input file: %s", argv[1]);
         }
     } else {
+        fprintf(stderr, "DEBUG: using stdin\n");
         yyin = stdin;
     }
 
+    fprintf(stderr, "DEBUG: starting yyparse\n");
     if (yyparse() == 0 && program_ast) {
+        fprintf(stderr, "DEBUG: yyparse success, starting codegen_run\n");
         codegen_run(program_ast);
+        fprintf(stderr, "DEBUG: codegen_run done\n");
     } else {
         error_report("Compilation failed due to errors.");
     }

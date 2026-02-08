@@ -19,6 +19,16 @@ void comment(void);
 int check_type(void);
 void skip_attribute(void);
 
+#define YY_INPUT(buf, result, max_size) \
+    { \
+        int c = fgetc(yyin); \
+        if (c == (-1)) result = YY_NULL; \
+        else { \
+            buf[0] = c; \
+            result = 1; \
+        } \
+    }
+
 int column = 0;
 %}
 

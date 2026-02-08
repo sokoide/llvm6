@@ -148,6 +148,7 @@ struct Symbol {
     int offset; /* for local variables or struct member offset in bytes */
     int index;  /* for struct member index */
     int is_global;
+    int is_emitted; /* for global IR generation */
     int is_parameter; /* true if this is a function parameter */
     int is_array;     /* true if this is an array */
     int is_enum_constant;
@@ -268,6 +269,7 @@ struct ASTNode {
         struct {
             ASTNode* value;        /* case constant value (NULL for default) */
             ASTNode* statement;    /* statement to execute */
+            char* label;           /* LLVM label for this case */
         } case_stmt;
 
         /* Declarations */

@@ -141,38 +141,41 @@ bootstrap: $(TC2)
 	@echo "Self-hosting Level 1 complete: $(TC2) generated."
 	@echo "Verifying $(TC2) with a simple test..."
 	@echo "Verifying $(TC2) with a simple test..."
-	@# $(TC2) tests/fixtures/simple.c > $(BOOTSTRAP_DIR)/simple_test.ll
-	@# clang $(BOOTSTRAP_DIR)/simple_test.ll -o $(BOOTSTRAP_DIR)/simple_test
-	@# $(BOOTSTRAP_DIR)/simple_test; \
-	# status=$$?; \
-	# if [ $$status -eq 42 ]; then \
-	# 	echo "Verification PASSED (exit code 42)"; \
-	# else \
-	# 	echo "Verification FAILED (exit code $$status)"; \
-	# 	exit 1; \
-	# fi
-	@echo "TC2 generated successfully. Skipping execution verification due to known ABI issues."
+	@$(TC2) tests/fixtures/simple.c > $(BOOTSTRAP_DIR)/simple_test.ll
+	@clang $(BOOTSTRAP_DIR)/simple_test.ll -o $(BOOTSTRAP_DIR)/simple_test
+	@$(BOOTSTRAP_DIR)/simple_test; \
+	status=$$?; \
+	if [ $$status -eq 42 ]; then \
+		echo "Verification PASSED (exit code 42)"; \
+	else \
+		echo "Verification FAILED (exit code $$status)"; \
+		exit 1; \
+	fi
+	# @echo "TC2 generated successfully. Skipping execution verification due to known ABI issues."
 
 # Build TC2 (Self-hosted)
-$(TC2): $(TC1) $(BOOTSTRAP_DIR) $(TC2_LL)
+$(TC2): $(TC1) $(BOOTSTRAP_DIR) $(TC2_LL) $(BOOTSTRAP_DIR)/builtins.ll
 	@echo "Linking $(TC2)..."
-	clang $(TC2_LL) -o $(TC2) -Wl,-alias,___stderrp,_stderr -Wl,-alias,___stdinp,_stdin -Wl,-alias,___stdoutp,_stdout
+	clang $(BOOTSTRAP_DIR)/builtins.ll $(TC2_LL) -o $(TC2) -Wl,-alias,___stderrp,_stderr -Wl,-alias,___stdinp,_stdin -Wl,-alias,___stdoutp,_stdout
+
+$(BOOTSTRAP_DIR)/builtins.ll: | $(BOOTSTRAP_DIR)
+	@echo "declare i32 @memcmp(i8*, i8*, i64)" > $@
 
 # Rules to generate IR using TC1
 $(BOOTSTRAP_DIR)/%.ll: src/%.c $(TC1)
 	@echo "TC1 compiling $<..."
 	@gcc -E -P $< -Isrc -I$(BUILD_DIR) -I$(STUBS_DIR) -nostdinc > $(BOOTSTRAP_DIR)/$*.pre.c
-	@$(TC1) $(BOOTSTRAP_DIR)/$*.pre.c > $@ || (echo "Failed to compile $<"; exit 1)
+	@$(TC1) $(BOOTSTRAP_DIR)/$*.pre.c 2>/dev/null > $@ || (echo "Failed to compile $<"; exit 1)
 
 $(BOOTSTRAP_DIR)/grammar_c.tab.ll: $(BUILD_DIR)/grammar_c.tab.c $(TC1)
 	@echo "TC1 compiling grammar..."
 	@gcc -E -P $< -Isrc -I$(BUILD_DIR) -I$(STUBS_DIR) -nostdinc > $(BOOTSTRAP_DIR)/grammar_c.tab.pre.c
-	@$(TC1) $(BOOTSTRAP_DIR)/grammar_c.tab.pre.c > $@ || (echo "Failed to compile grammar"; exit 1)
+	@$(TC1) $(BOOTSTRAP_DIR)/grammar_c.tab.pre.c 2>/dev/null > $@ || (echo "Failed to compile grammar"; exit 1)
 
 $(BOOTSTRAP_DIR)/lex_c.yy.ll: $(BUILD_DIR)/lex_c.yy.c $(TC1)
 	@echo "TC1 compiling lexer..."
 	@gcc -E -P $< -Isrc -I$(BUILD_DIR) -I$(STUBS_DIR) -nostdinc > $(BOOTSTRAP_DIR)/lex_c.yy.pre.c
-	@$(TC1) $(BOOTSTRAP_DIR)/lex_c.yy.pre.c > $@ || (echo "Failed to compile lexer"; exit 1)
+	@$(TC1) $(BOOTSTRAP_DIR)/lex_c.yy.pre.c 2>/dev/null > $@ || (echo "Failed to compile lexer"; exit 1)
 
 $(BOOTSTRAP_DIR):
 	mkdir -p $(BOOTSTRAP_DIR)

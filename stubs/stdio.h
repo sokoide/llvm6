@@ -35,6 +35,7 @@ int fclose(FILE* stream);
 int fputs(const char* s, FILE* stream);
 int fflush(FILE* stream);
 int fputc(int c, FILE* stream);
+size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream);
 int fgetc(FILE* stream);
 char* fgets(char* s, int size, FILE* stream);
 void* malloc(unsigned long size);
@@ -58,5 +59,12 @@ int isspace(int c);
 int isdigit(int c);
 int isalpha(int c);
 int isalnum(int c);
+int fileno(FILE* stream);
+int isatty(int fd);
+size_t fread(void* ptr, size_t size, size_t nmemb, FILE* stream);
+int getc(FILE* stream);
+int ferror(FILE* stream);
+void clearerr(FILE* stream);
+int ungetc(int c, FILE* stream);
 #define EOF (-1)
 #endif

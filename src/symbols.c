@@ -7,6 +7,14 @@ TypeInfo* g_all_structs = NULL;
 
 void symbol_add_global(Symbol* symbol) {
     if (!symbol) return;
+    /* Check for duplicate symbols in global scope */
+    Symbol* existing = g_global_symbols;
+    while (existing) {
+        if (existing->name && symbol->name && strcmp(existing->name, symbol->name) == 0) {
+            return; /* Already exists */
+        }
+        existing = existing->next;
+    }
     symbol->is_global = 1;
     symbol->next = g_global_symbols;
     g_global_symbols = symbol;

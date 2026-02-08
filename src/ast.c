@@ -70,6 +70,15 @@ int evaluate_constant_node(ASTNode* node) {
         return node->data.constant.value.int_val;
     }
     /* Simple constant folding for enums if needed */
+    if (node->type == AST_UNARY_OP) {
+        int operand = evaluate_constant_node(node->data.unary_op.operand);
+        switch (node->data.unary_op.op) {
+            case UOP_MINUS: return -operand;
+            case UOP_NOT: return !operand;
+            case UOP_BITNOT: return ~operand;
+            default: return 0;
+        }
+    }
     if (node->type == AST_BINARY_OP) {
         int left = evaluate_constant_node(node->data.binary_op.left);
         int right = evaluate_constant_node(node->data.binary_op.right);
@@ -306,6 +315,7 @@ Symbol* create_symbol(const char* name, TypeInfo* type) {
     symbol->is_array = 0;
     symbol->is_enum_constant = 0;
     symbol->enum_value = 0;
+    symbol->is_emitted = 0;
     symbol->next = NULL;
     return symbol;
 }

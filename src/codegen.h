@@ -25,13 +25,23 @@ struct LLVMValue {
     } data;
 };
 
+typedef struct LabelEntry {
+    char* name;
+    char* llvm_label;
+    struct LabelEntry* next;
+} LabelEntry;
+
 /* Code generation context */
 typedef struct {
     FILE* output;
+    FILE* alloca_file;
     int next_reg_id;
     int next_bb_id;
     char* current_function_name;
     TypeInfo* current_function_return_type;
+    char* current_break_label;
+    char* current_continue_label;
+    struct LabelEntry* labels;
 } CodeGenContext;
 
 /* Function prototypes */

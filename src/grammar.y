@@ -388,7 +388,7 @@ declaration_specifiers
 			if ($2 == NULL) {
 				$$ = $1;
 			} else {
-				$$ = $2;
+				$$ = duplicate_type_info($2);
 				$$->storage_class = $1->storage_class;
 			}
 		}
@@ -399,7 +399,7 @@ declaration_specifiers
 			if ($2 == NULL) {
 				$$ = $1;
 			} else {
-				$$ = $2;
+				$$ = duplicate_type_info($2);
 				if ($1) {
 					/* Handle unsigned/signed modifiers */
 					if ($1->base_type == TYPE_UNSIGNED) {
@@ -439,7 +439,7 @@ declaration_specifiers
 			if ($2 == NULL) {
 				$$ = $1;
 			} else {
-				$$ = $2;
+				$$ = duplicate_type_info($2);
 				if ($1) {
 					$$->qualifiers = (TypeQualifier)($$->qualifiers | $1->qualifiers);
 				}

@@ -5,6 +5,11 @@ ccompiler
 # Object files
 *.o
 *.obj
+tc1
+tc2
+ccompiler
+ccompiler_c
+
 
 # AI
 .serena/
